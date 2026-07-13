@@ -1,0 +1,19 @@
+[Unit]
+Description=Hanul Share Gateway (8506)
+After=network.target hanul-streamlit.service
+Requires=hanul-streamlit.service
+
+[Service]
+Type=simple
+User=HANUL_USER
+WorkingDirectory=HANUL_ROOT
+Environment=PATH=HANUL_ROOT/VENV/bin:/usr/local/bin:/usr/bin
+Environment=STREAMLIT_ORIGIN=http://127.0.0.1:8505
+ExecStart=HANUL_ROOT/VENV/bin/python3 HANUL_ROOT/share_gateway.py
+Restart=always
+RestartSec=5
+StandardOutput=append:HANUL_ROOT/.gateway.log
+StandardError=append:HANUL_ROOT/.gateway.log
+
+[Install]
+WantedBy=multi-user.target

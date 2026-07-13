@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ABC 5기 신성섭 | 감사조서 Smart Reviewer</title>
+  <meta name="description" content="한울회계법인 감사조서 자가검토 시스템 — 규칙엔진 + Hanul DB + AI 심층 분석" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="ABC 5기 신성섭 | 감사조서 Smart Reviewer" />
+  <meta property="og:description" content="감사조서 업로드 → 리뷰노트 자동 생성. 규칙엔진·Hanul DB·AI 심층 분석 기반 자가검토 도구 (검증용)" />
+  <meta property="og:image" content="{{OG_IMAGE_URL}}" />
+  <meta property="og:image:width" content="1536" />
+  <meta property="og:image:height" content="1024" />
+  <meta property="og:site_name" content="ABC 5기 신성섭 · 감사조서 Smart Reviewer" />
+  <meta property="og:url" content="{{SHARE_URL}}" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      background: linear-gradient(145deg, #061a42 0%, #0a2a63 42%, #123c97 100%);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+    .card {
+      width: 100%;
+      max-width: 520px;
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.14);
+      border-radius: 20px;
+      padding: 36px 32px 32px;
+      box-shadow: 0 18px 48px rgba(0,0,0,.35);
+      text-align: center;
+    }
+    .badge {
+      display: inline-block;
+      background: rgba(253,185,19,.18);
+      color: #fdb913;
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .06em;
+      padding: 6px 14px;
+      border-radius: 999px;
+      margin-bottom: 18px;
+    }
+    .cohort {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #c8d9ff;
+      margin-bottom: 8px;
+      letter-spacing: .02em;
+    }
+    h1 {
+      font-size: 1.85rem;
+      font-weight: 800;
+      line-height: 1.25;
+      margin-bottom: 6px;
+      letter-spacing: -.02em;
+    }
+    .gold-line {
+      width: 56px;
+      height: 3px;
+      background: #fdb913;
+      border-radius: 2px;
+      margin: 14px auto 18px;
+    }
+    .firm {
+      font-size: .88rem;
+      color: #9eb8e8;
+      margin-bottom: 22px;
+    }
+    .features {
+      text-align: left;
+      background: rgba(0,0,0,.18);
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin-bottom: 26px;
+      font-size: .9rem;
+      line-height: 1.65;
+      color: #e8efff;
+    }
+    .features li { margin-left: 1.1em; margin-bottom: 4px; }
+    .cta {
+      display: block;
+      width: 100%;
+      background: #fdb913;
+      color: #0a2a63;
+      font-size: 1.05rem;
+      font-weight: 800;
+      text-decoration: none;
+      padding: 15px 20px;
+      border-radius: 12px;
+      box-shadow: 0 6px 20px rgba(253,185,19,.35);
+      transition: transform .15s, box-shadow .15s;
+    }
+    .cta:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px rgba(253,185,19,.45);
+    }
+    .note {
+      margin-top: 16px;
+      font-size: .76rem;
+      color: #7a9ad4;
+      line-height: 1.5;
+    }
+    .version-line {
+      margin-top: 14px;
+      font-size: .72rem;
+      color: #8eb4ff;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">검증용 테스트</div>
+    <p class="cohort">ABC 5기 신성섭</p>
+    <h1>감사조서<br>Smart Reviewer</h1>
+    <div class="gold-line"></div>
+    <p class="firm">한울회계법인 · 감사조서 자가검토</p>
+    <ul class="features">
+      <li>PDF·엑셀 조서 업로드 → 리뷰노트 자동 생성</li>
+      <li>규칙엔진 + Hanul DB + AI 심층 분석</li>
+      <li>절차누락·감리지적·4대중점 자동 점검</li>
+    </ul>
+    <a class="cta" href="{{APP_URL}}">검토 시작하기 →</a>
+    <p class="version-line">{{VERSION_LABEL}} · {{KB_LABEL}}</p>
+    <p class="note">PC·태블릿 브라우저(Chrome, Safari) 권장<br>검증용 샘플 조서로 테스트해 주세요.</p>
+  </div>
+</body>
+</html>

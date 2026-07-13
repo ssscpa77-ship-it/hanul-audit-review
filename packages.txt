@@ -1,0 +1,4 @@
+# Streamlit Community Cloud — 시스템 패키지 (선택)
+# 런타임 OCR은 pdfplumber 위주. KB 색인은 로컬에서만 수행.
+# tesseract-ocr
+# tesseract-ocr-kor

@@ -1,0 +1,17 @@
+[Unit]
+Description=Hanul Streamlit App (8505)
+After=network.target
+
+[Service]
+Type=simple
+User=HANUL_USER
+WorkingDirectory=HANUL_ROOT
+Environment=PATH=HANUL_ROOT/VENV/bin:/usr/local/bin:/usr/bin
+ExecStart=HANUL_ROOT/VENV/bin/streamlit run app.py --server.port=8505 --server.address=127.0.0.1 --server.headless=true
+Restart=always
+RestartSec=5
+StandardOutput=append:HANUL_ROOT/.server.log
+StandardError=append:HANUL_ROOT/.server.log
+
+[Install]
+WantedBy=multi-user.target

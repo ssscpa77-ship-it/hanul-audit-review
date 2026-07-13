@@ -1,0 +1,38 @@
+# 가상환경
+VENV/
+__pycache__/
+*.pyc
+
+# 비밀 설정 (API 키 등)
+.env
+.streamlit/secrets.toml
+
+# 지식 저장소 색인 (대용량 — Streamlit Cloud 는 hanul_kb.sqlite 만 Git LFS 로 포함)
+kb_store/*
+!kb_store/hanul_kb.sqlite
+kb_store/ocr_cache/
+
+# macOS
+.DS_Store
+
+# 임시 터널 (검증용)
+.tunnel.log
+.tunnel.pid
+.tunnel.url
+.tunnel.url.stable
+.deploy_stamp
+.keep_alive.log
+.keep_alive.pid
+.server.log
+.gateway.log
+.caffeinate.pid
+.tunnel_share.log
+.tunnel_app.log
+.tunnel_share.pid
+.tunnel_app.pid
+.app_tunnel.url
+.tunnel.named.env
+cloudflared/config.yml
+.tunnel_named.log
+.tunnel_named.pid
+.kakao_message_ready.txt

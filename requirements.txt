@@ -1,0 +1,13 @@
+streamlit
+pandas
+openpyxl
+xlrd
+pdfplumber
+pypdfium2
+pytesseract
+Pillow
+python-docx
+olefile
+openai
+python-dotenv
+aiohttp
