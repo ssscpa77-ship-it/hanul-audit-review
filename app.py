@@ -14,11 +14,13 @@ import os
 import re
 import subprocess
 import unicodedata
+from pathlib import Path
 from typing import Any
 
 import streamlit as st
 import streamlit.components.v1 as components
 
+import asset_exports
 import config  # noqa: F401 — .env 로드
 import sheet_code_registry
 importlib.reload(sheet_code_registry)
@@ -34,7 +36,21 @@ import review_engine as re_engine
 import qc_review
 importlib.reload(qc_review)
 importlib.reload(notes_pipeline)
-from excel_export import build_review_notes_excel
+from excel_export import build_review_notes_excel, review_notes_download_filename
+
+EXPORT_REVIEW_PATH = Path(__file__).resolve().parent / "share" / "exports" / "latest_review.xlsx"
+
+
+def _save_review_excel_for_direct_download(data: bytes) -> None:
+    EXPORT_REVIEW_PATH.parent.mkdir(parents=True, exist_ok=True)
+    EXPORT_REVIEW_PATH.write_bytes(data)
+
+
+def _direct_review_download_url() -> str:
+    base = config.public_share_base()
+    if not base:
+        return ""
+    return f"{base}/download/review-notes.xlsx"
 from parser import parse_uploads
 from review_engine import Materiality, extract_engagement, extract_materiality, run_review
 from sample_data import (
@@ -751,63 +767,7 @@ def _focus_root_dir() -> str:
 
 
 def _resolve_focus_pdf(is_listed: bool) -> str | None:
-    """한울DB 4대 중점사항 폴더에서 상장·비상장 원문 PDF 경로를 찾는다."""
-    root = _focus_root_dir()
-    if not os.path.isdir(root):
-        return None
-
-    if is_listed:
-        folder_keys = ("상장(IPO)", "상장", "금융감독원")
-        file_keys = ("상장법인_4대", "상장법인", "중점심사 회계이슈")
-    else:
-        folder_keys = ("비상장", "한국공인회계사회")
-        file_keys = ("비상장법인_4대", "비상장법인", "중점 점검분야")
-
-    folder_path: str | None = None
-    for d in sorted(os.listdir(root)):
-        if d.startswith("."):
-            continue
-        full = os.path.join(root, d)
-        if not os.path.isdir(full):
-            continue
-        nd = _norm_name(d)
-        if is_listed:
-            if "비상장" in nd:
-                continue
-            if any(k in nd for k in folder_keys):
-                folder_path = full
-                break
-        else:
-            if "비상장" in nd and any(k in nd for k in folder_keys):
-                folder_path = full
-                break
-
-    if not folder_path:
-        return None
-
-    candidates: list[str] = []
-    for f in os.listdir(folder_path):
-        if f.startswith(".") or not f.lower().endswith(".pdf"):
-            continue
-        nf = _norm_name(f)
-        if any(k in nf for k in file_keys):
-            candidates.append(os.path.join(folder_path, f))
-
-    if not candidates:
-        # 폴더 내 PDF 1개면 그대로 사용
-        pdfs = [
-            os.path.join(folder_path, f)
-            for f in os.listdir(folder_path)
-            if f.lower().endswith(".pdf") and not f.startswith(".")
-        ]
-        return sorted(pdfs)[0] if pdfs else None
-
-    # Hanul DB 표준 파일명(상장법인_4대 / 비상장법인_4대) 우선
-    for c in sorted(candidates):
-        base = _norm_name(os.path.basename(c))
-        if "4대 중점사항" in base and "보도자료" not in base and "사전예고 안내" not in base:
-            return c
-    return sorted(candidates)[0]
+    return asset_exports.resolve_focus_pdf(is_listed)
 
 
 def _focus_issue_summary_html(issues: list) -> str:
@@ -836,21 +796,31 @@ def _render_focus_section(
         unsafe_allow_html=True,
     )
     pdf_path = _resolve_focus_pdf(is_listed)
+    short = "상장법인 4대 중점사항" if is_listed else "비상장법인 4대 중점사항"
     if pdf_path and os.path.isfile(pdf_path):
-        dl_label = _norm_name(os.path.basename(pdf_path))
-        short = "상장법인 4대 중점사항" if is_listed else "비상장법인 4대 중점사항"
-        try:
-            with open(pdf_path, "rb") as fh:
-                data = fh.read()
-            st.download_button(
+        published = asset_exports.publish_focus_pdf(is_listed)
+        base = config.public_share_base()
+        slug = "focus-listed.pdf" if is_listed else "focus-unlisted.pdf"
+        if published and base:
+            st.link_button(
                 f"⬇️ {short} 원문 다운로드",
-                data,
-                file_name=dl_label,
-                key=f"{key_prefix}_{hashlib.md5(pdf_path.encode()).hexdigest()[:10]}",
+                asset_exports.direct_url(base, slug),
                 use_container_width=True,
             )
-        except OSError:
-            st.caption("원문 파일을 읽을 수 없습니다.")
+        else:
+            try:
+                with open(pdf_path, "rb") as fh:
+                    data = fh.read()
+                st.download_button(
+                    f"⬇️ {short} 원문 다운로드",
+                    data,
+                    file_name="hanul_focus.pdf",
+                    mime="application/pdf",
+                    key=f"{key_prefix}_{hashlib.md5(pdf_path.encode()).hexdigest()[:10]}",
+                    use_container_width=True,
+                )
+            except OSError:
+                st.caption("원문 파일을 읽을 수 없습니다.")
     else:
         st.caption("한울DB에서 원문 PDF를 찾지 못했습니다.")
 
@@ -1209,20 +1179,48 @@ def render_results() -> None:
                 st.caption(f"✏️ {row['to_be'][:260]}")
 
     # --- 엑셀 다운로드 ---
-    excel_bytes = build_review_notes_excel(engagement, notes, focus_sheet)
     col_dl, col_sp = st.columns([1, 3])
     with col_dl:
-        st.download_button(
-            label="📥 감리 리뷰노트 엑셀 내려받기",
-            data=excel_bytes,
-            file_name=f"감리_리뷰노트_{engagement['company_name']}_{engagement['audit_year']}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
-            use_container_width=True,
-            disabled=not notes,
-        )
+        try:
+            excel_bytes = build_review_notes_excel(engagement, notes, focus_sheet)
+            if notes:
+                _save_review_excel_for_direct_download(excel_bytes)
+            direct_url = _direct_review_download_url()
+            if notes and direct_url:
+                st.link_button(
+                    "📥 감리 리뷰노트 엑셀 다운로드",
+                    direct_url,
+                    type="primary",
+                    use_container_width=True,
+                )
+            elif notes:
+                st.download_button(
+                    label="📥 감리 리뷰노트 엑셀 다운로드",
+                    data=excel_bytes,
+                    file_name=review_notes_download_filename(engagement),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    type="primary",
+                    use_container_width=True,
+                )
+            else:
+                st.button(
+                    "📥 감리 리뷰노트 엑셀 다운로드",
+                    disabled=True,
+                    use_container_width=True,
+                )
+        except Exception as exc:  # noqa: BLE001
+            st.error(f"엑셀 생성 오류: {exc}")
     with col_sp:
-        st.caption("표지 · 우선순위 목록 · 등급별(★★★/★★/★) 세부 시트로 구성됩니다.")
+        kb_label = (
+            f"Hanul DB 연결됨 · {kb.stats()['documents']:,}건"
+            if kb.is_ready()
+            else "Hanul DB 미연결 — 색인 필요"
+        )
+        st.caption(
+            f"표지 · 우선순위 목록 · 등급별(★★★/★★/★) 세부 시트. "
+            f"{kb_label}. "
+            "iPad·iPhone은 위 **엑셀 다운로드** 버튼을 누르세요 (파일명: hanul_review_note_연도.xlsx)."
+        )
 
     if not notes:
         st.divider()
@@ -1325,20 +1323,31 @@ def render_full_note(note: dict) -> None:
                     st.write(summary)
                 if primary.get("brief") and primary["brief"] != summary:
                     st.caption(primary["brief"])
-                fp = primary.get("file_path") or ""
+                fp = kb.resolve_source_path(primary.get("file_path") or "")
                 fname = primary.get("file") or "원문"
                 if fp and os.path.isfile(fp):
-                    try:
-                        with open(fp, "rb") as fh:
-                            st.download_button(
-                                "⬇️ 원문보기 (한울DB)",
-                                fh.read(),
-                                file_name=fname,
-                                key=f"case_dl_{note.get('id', '')}_{primary.get('number', '')}",
-                                use_container_width=True,
-                            )
-                    except OSError:
-                        st.caption(f"출처: {fname}")
+                    base = config.public_share_base()
+                    published = asset_exports.publish_case_file(
+                        fp, str(note.get("id", "")), str(primary.get("number", ""))
+                    )
+                    if published and base:
+                        st.link_button(
+                            "⬇️ 원문보기 (한울DB)",
+                            asset_exports.direct_url(base, f"cases/{published.name}"),
+                            use_container_width=True,
+                        )
+                    else:
+                        try:
+                            with open(fp, "rb") as fh:
+                                st.download_button(
+                                    "⬇️ 원문보기 (한울DB)",
+                                    fh.read(),
+                                    file_name=fname,
+                                    key=f"case_dl_{note.get('id', '')}_{primary.get('number', '')}",
+                                    use_container_width=True,
+                                )
+                        except OSError:
+                            st.caption(f"출처: {fname}")
                 elif fname:
                     st.caption(f"출처: {fname}")
             others = [c for c in cases[1:] if c.get("has_number") and c.get("brief")]

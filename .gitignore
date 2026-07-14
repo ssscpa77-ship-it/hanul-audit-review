@@ -7,9 +7,9 @@ __pycache__/
 .env
 .streamlit/secrets.toml
 
-# 지식 저장소 색인 (대용량 — Streamlit Cloud 는 hanul_kb.sqlite 만 Git LFS 로 포함)
+# 지식 저장소 색인 (Streamlit Cloud: hanul_kb.sqlite.gz 만 포함, 실행 시 자동 복원)
 kb_store/*
-!kb_store/hanul_kb.sqlite
+!kb_store/hanul_kb.sqlite.gz
 kb_store/ocr_cache/
 
 # macOS

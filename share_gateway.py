@@ -18,6 +18,10 @@ from aiohttp import ClientSession, ClientConnectorError, ClientTimeout, WSMsgTyp
 
 ROOT = Path(__file__).resolve().parent
 SHARE_DIR = ROOT / "share"
+EXPORT_REVIEW = SHARE_DIR / "exports" / "latest_review.xlsx"
+FOCUS_LISTED = SHARE_DIR / "exports" / "focus_listed.pdf"
+FOCUS_UNLISTED = SHARE_DIR / "exports" / "focus_unlisted.pdf"
+CASE_DIR = SHARE_DIR / "exports" / "cases"
 TEMPLATE = SHARE_DIR / "share_landing.html"
 OG_IMAGE = SHARE_DIR / "share_og.png"
 
@@ -227,6 +231,41 @@ async def _proxy_websocket(request: web.Request, *, path_qs: str | None = None) 
     return ws_server
 
 
+async def handle_review_download(_request: web.Request) -> web.Response:
+    """Streamlit 버튼 대신 HTTP 직접 다운로드 (터널·카톡 브라우저 호환)."""
+    if not EXPORT_REVIEW.is_file():
+        return web.Response(
+            text="엑셀 파일이 아직 없습니다. 앱에서 조서 업로드 후 리뷰를 실행하세요.",
+            status=404,
+            content_type="text/plain; charset=utf-8",
+        )
+    return web.FileResponse(
+        EXPORT_REVIEW,
+        headers={
+            "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Content-Disposition": 'attachment; filename="hanul_review_note.xlsx"',
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
+async def handle_pdf_download(path: Path, filename: str) -> web.Response:
+    if not path.is_file():
+        return web.Response(
+            text="PDF 파일을 찾을 수 없습니다. 앱에서 한 번 새로고침 후 다시 시도하세요.",
+            status=404,
+            content_type="text/plain; charset=utf-8",
+        )
+    return web.FileResponse(
+        path,
+        headers={
+            "Content-Type": "application/pdf",
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
 async def handle_landing(request: web.Request) -> web.Response:
     return web.Response(
         body=_render_landing(request.host),
@@ -251,6 +290,17 @@ async def route(request: web.Request) -> web.StreamResponse:
             content_type="image/png",
             headers={"Cache-Control": "public, max-age=300"},
         )
+    if path == "/download/review-notes.xlsx":
+        return await handle_review_download(request)
+    if path == "/download/focus-listed.pdf":
+        return await handle_pdf_download(FOCUS_LISTED, "hanul_focus_listed.pdf")
+    if path == "/download/focus-unlisted.pdf":
+        return await handle_pdf_download(FOCUS_UNLISTED, "hanul_focus_unlisted.pdf")
+    if path.startswith("/download/cases/"):
+        name = path.rsplit("/", 1)[-1]
+        if not name or ".." in name:
+            raise web.HTTPNotFound()
+        return await handle_pdf_download(CASE_DIR / name, name)
 
     if path in ("/", "/share"):
         if request.query.get("app") == "1":

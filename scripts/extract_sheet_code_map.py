@@ -19,9 +19,9 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "data" / "sheet_code_map_fy2026.json"
 
 _HANUL_CANDIDATES = [
-    ROOT.parent / "Hanul DB",
-    Path.home() / "Desktop" / "Hanul DB",
-    Path("/Users/admin/Desktop/Hanul DB"),
+    ROOT.parent / "Hanul DB-SSS",
+    Path.home() / "Desktop" / "Hanul DB-SSS",
+    Path("/Users/admin/Desktop/Hanul DB-SSS"),
 ]
 
 

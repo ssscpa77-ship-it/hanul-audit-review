@@ -33,6 +33,29 @@ COLOR = {
 }
 
 _FONT = "맑은 고딕"
+_ILLEGAL_XML_RE = re.compile(r"[\000-\010\013\014\016-\037]")
+_SHEET_BAD_RE = re.compile(r"[:\\/?*\[\]]")
+
+
+def _cell_text(val: Any) -> str:
+    """엑셀·XML 에 허용되지 않는 제어문자 제거."""
+    if val is None:
+        return ""
+    text = str(val)
+    text = _ILLEGAL_XML_RE.sub("", text)
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _sheet_title(name: str) -> str:
+    """워크시트명 — Excel 금지문자·31자 제한."""
+    title = _SHEET_BAD_RE.sub(" ", _cell_text(name)).strip() or "Sheet"
+    return title[:31]
+
+
+def review_notes_download_filename(engagement: dict[str, Any]) -> str:
+    """다운로드 파일명 — iPad·모바일 호환 순수 ASCII."""
+    year = re.sub(r"[^\d]", "", str(engagement.get("audit_year", ""))) or "FY"
+    return f"hanul_review_note_{year}.xlsx"
 
 
 # ── 스타일 헬퍼 ──────────────────────────────────────────────
@@ -59,7 +82,8 @@ def _mc(ws, r1: int, c1: int, r2: int, c2: int) -> None:
 
 def _set(ws, row, col, val, *, bold=False, sz=10, color="000000",
          fill=None, halign="left", wrap=True, italic=False, border=True):
-    c = ws.cell(row=row, column=col, value=val)
+    safe_val = _cell_text(val) if isinstance(val, str) else val
+    c = ws.cell(row=row, column=col, value=safe_val)
     c.font = _fn(bold=bold, sz=sz, color=color, italic=italic)
     c.alignment = _al(halign, "center", wrap)
     if fill:
@@ -235,7 +259,7 @@ def _create_summary(wb: Workbook, items: list[tuple]) -> None:
 
 # ── 등급별 세부 시트 ──────────────────────────────────────────
 def _create_detail(wb: Workbook, items: list[tuple], tier: int) -> None:
-    title = f"{TIER_TITLE[tier]} ({len(items)}건)"
+    title = _sheet_title(f"{TIER_TITLE[tier]} ({len(items)}건)")
     ws = wb.create_sheet(title)
     _no_grid(ws)
     _widths(ws, [2, 5, 14, 52, 30, 52, 12])
@@ -359,4 +383,7 @@ def build_review_notes_excel(
     buffer = BytesIO()
     wb.save(buffer)
     buffer.seek(0)
-    return buffer.getvalue()
+    data = buffer.getvalue()
+    if not data.startswith(b"PK"):
+        raise ValueError("Generated Excel payload is invalid.")
+    return data

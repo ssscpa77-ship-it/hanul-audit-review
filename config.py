@@ -260,3 +260,17 @@ def primary_access_url() -> str:
         if "localhost" not in url and "127.0.0.1" not in url:
             return url
     return deployment_access_urls()[0]
+
+
+def public_share_base() -> str:
+    """카톡·터널 공개 URL (직접 다운로드 링크용)."""
+    env = os.environ.get("PUBLIC_SHARE_URL", "").strip().rstrip("/")
+    if env:
+        return env
+    stable = _ROOT / ".tunnel.url.stable"
+    if stable.is_file():
+        return stable.read_text(encoding="utf-8").strip().rstrip("/")
+    current = _ROOT / ".tunnel.url"
+    if current.is_file():
+        return current.read_text(encoding="utf-8").strip().rstrip("/")
+    return ""

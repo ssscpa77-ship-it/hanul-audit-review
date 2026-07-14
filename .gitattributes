@@ -1,1 +1,1 @@
-kb_store/hanul_kb.sqlite filter=lfs diff=lfs merge=lfs -text
+# KB는 gzip(37MB)으로 GitHub에 직접 포함 — LFS 사용 안 함

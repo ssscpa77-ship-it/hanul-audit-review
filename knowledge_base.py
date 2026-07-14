@@ -10,19 +10,59 @@ Hanul DB 의 자료를 색인한 로컬 SQLite FTS5 저장소를 검색해,
 
 from __future__ import annotations
 
+import gzip
 import os
 import re
+import shutil
 import sqlite3
 from dataclasses import dataclass
 from functools import lru_cache
 
 # 원본 자료 폴더 (환경변수로 재정의 가능)
-SOURCE_DIR = os.environ.get(
-    "HANUL_DB_PATH", os.path.expanduser("~/Desktop/Hanul DB")
-)
+_OLD_DB_DIR = os.path.expanduser("~/Desktop/Hanul DB")
+_DEFAULT_DB_DIR = os.path.expanduser("~/Desktop/Hanul DB-SSS")
+SOURCE_DIR = os.environ.get("HANUL_DB_PATH", _DEFAULT_DB_DIR)
+
+
+def resolve_source_path(path: str) -> str:
+    """색인에 남은 구 경로(Hanul DB)를 신규 폴더(Hanul DB-SSS)로 보정."""
+    if not path:
+        return path
+    if os.path.isfile(path):
+        return path
+    if path.startswith(_OLD_DB_DIR):
+        candidate = path.replace(_OLD_DB_DIR, _DEFAULT_DB_DIR, 1)
+        if os.path.isfile(candidate):
+            return candidate
+    return path
 # 색인 저장 위치
 STORE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kb_store")
 STORE_PATH = os.path.join(STORE_DIR, "hanul_kb.sqlite")
+STORE_GZ_PATH = os.path.join(STORE_DIR, "hanul_kb.sqlite.gz")
+
+
+def _sqlite_header_ok(path: str) -> bool:
+    try:
+        with open(path, "rb") as fh:
+            return fh.read(16).startswith(b"SQLite format 3\x00")
+    except OSError:
+        return False
+
+
+def ensure_store() -> None:
+    """배포 환경: gzip 압축본 → sqlite 복원 (Git LFS 미지원 대비)."""
+    if _sqlite_header_ok(STORE_PATH):
+        return
+    if not os.path.isfile(STORE_GZ_PATH):
+        return
+    os.makedirs(STORE_DIR, exist_ok=True)
+    with gzip.open(STORE_GZ_PATH, "rb") as src, open(STORE_PATH, "wb") as dst:
+        shutil.copyfileobj(src, dst)
+    try:
+        _connect.cache_clear()
+    except NameError:
+        pass
+
 
 
 @dataclass
@@ -394,7 +434,8 @@ def gather_citations(
 
 def is_ready() -> bool:
     """색인 저장소가 존재하고 내용이 있는지 확인."""
-    if not os.path.exists(STORE_PATH):
+    ensure_store()
+    if not _sqlite_header_ok(STORE_PATH):
         return False
     try:
         con = _connect()
@@ -449,7 +490,7 @@ def retrieve(
             Citation(
                 source=source,
                 snippet=_trim(chunk_text),
-                ref=path,
+                ref=resolve_source_path(path),
                 score=float(score),
             )
         )
@@ -489,12 +530,13 @@ def parse_case(citation: "Citation") -> dict:
     else:
         number = title  # 번호 없는 모음집: 제목을 식별자로 사용
         subject = ""
+    resolved = resolve_source_path(citation.ref)
     return {
         "number": number,
         "subject": subject,
         "brief": _brief(citation.snippet),
-        "file": citation.ref.rsplit("/", 1)[-1] if citation.ref else "",
-        "file_path": citation.ref,
+        "file": resolved.rsplit("/", 1)[-1] if resolved else "",
+        "file_path": resolved,
         "has_number": bool(m),
     }
 
@@ -514,5 +556,6 @@ def _brief(text: str, limit: int = 150) -> str:
 
 @lru_cache(maxsize=1)
 def _connect() -> sqlite3.Connection:
+    ensure_store()
     con = sqlite3.connect(f"file:{STORE_PATH}?mode=ro", uri=True, check_same_thread=False)
     return con
