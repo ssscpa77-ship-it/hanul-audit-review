@@ -1,3 +1,6 @@
+# Streamlit Community Cloud: [server] port 설정 금지 (앱 시작 실패)
+# 로컬 실행은 run_server.sh / 화면실행.command 가 --server.port=8505 로 지정
+
 [theme]
 base = "light"
 primaryColor = "#0F3E9C"
@@ -5,15 +8,6 @@ backgroundColor = "#EAF1FC"
 secondaryBackgroundColor = "#FFFFFF"
 textColor = "#12233F"
 font = "sans serif"
-
-[server]
-address = "0.0.0.0"
-port = 8505
-headless = true
-enableXsrfProtection = false
-enableCORS = false
-runOnSave = false
-fileWatcherType = "none"
 
 [browser]
 gatherUsageStats = false

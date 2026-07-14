@@ -40,8 +40,9 @@ git remote set-url origin "$REMOTE" 2>/dev/null || git remote add origin "$REMOT
 
 echo ""
 echo "  업로드 중... (1~3분)"
-git add knowledge_base.py .gitignore .gitattributes kb_store/hanul_kb.sqlite.gz
+git add knowledge_base.py requirements.txt .streamlit/config.toml .gitignore .gitattributes kb_store/hanul_kb.sqlite.gz
 git rm --cached kb_store/hanul_kb.sqlite 2>/dev/null || true
+git rm packages.txt 2>/dev/null || true
 git add -A
 git commit -m "Streamlit Cloud: KB gzip 배포 수정" 2>/dev/null || true
 if git push -u origin main; then
