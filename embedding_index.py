@@ -311,8 +311,11 @@ def search_semantic(
     top_idx = np.argsort(scores)[::-1][:k]
     out: list[tuple[float, int, str, str, str, str]] = []
     for idx in top_idx:
-        rowid, path, cat, title, text = meta[int(idx)]
-        out.append((float(scores[int(idx)]), rowid, path, cat, title, text))
+        i = int(idx)
+        if i < 0 or i >= len(meta):
+            continue
+        rowid, path, cat, title, text = meta[i]
+        out.append((float(scores[i]), rowid, path, cat, title, text))
     return out
 
 

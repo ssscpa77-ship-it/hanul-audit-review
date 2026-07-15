@@ -270,7 +270,7 @@ def _parse_excel(file_bytes: bytes, file_name: str) -> ParsedDocument:
             text_parts.append(f"[시트: {name}]")
             text_parts.append(_dataframe_to_text(df))
             cleaned = df.dropna(how="all").dropna(axis=1, how="all")
-            if not cleaned.empty:
+            if not cleaned.empty and cleaned.shape[1] >= 1:
                 # reset 전 인덱스가 엑셀 원본 행(0-based) → 엑셀 행번호는 +1
                 row_map = [int(i) + 1 for i in cleaned.index]
                 col_map = [int(c) + 1 for c in cleaned.columns]  # 엑셀 열번호(1-based)

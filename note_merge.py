@@ -517,6 +517,7 @@ def _contingency_point(note: dict[str, Any]) -> str:
 def _merge_contingency_group(group: list[dict[str, Any]]) -> dict[str, Any]:
     """우발부채·약정 다수 시트 지적 → 검토 항목 열거형 통합 노트 1건."""
     cfg = _theme_cfg("contingency_disclosure")
+    acct = "우발부채·약정"
     primary = max(group, key=lambda n: _sheet_score(n, cfg))
     merged = copy.deepcopy(primary)
 

@@ -1770,12 +1770,19 @@ def _row_amount_with_ref(table: pd.DataFrame, row_idx: int) -> tuple[float | Non
     return None, ""
 
 
+def _table_label_column(table: pd.DataFrame) -> list[str]:
+    """첫 열 라벨 목록 — 열이 없는 시트는 빈 리스트."""
+    if table.shape[1] < 1:
+        return []
+    return [("" if v is None else str(v)) for v in table.iloc[:, 0].tolist()]
+
+
 def _extract_account_amount_loc(
     table: pd.DataFrame, account: str
 ) -> tuple[float | None, str, str, int | None]:
     """통합(주석/Lead) 시트 — (금액, 셀좌표, 행라벨, 행인덱스)."""
     syns = _account_synonyms(account)
-    labels = [("" if v is None else str(v)) for v in table.iloc[:, 0].tolist()]
+    labels = _table_label_column(table)
     best: float | None = None
     best_ref = ""
     best_lab = ""
@@ -1793,7 +1800,7 @@ def _extract_sheet_total_loc(
     table: pd.DataFrame, account: str
 ) -> tuple[float | None, str, str, int | None]:
     """세부조서 — 합계/계정 행의 (금액, 셀좌표, 행라벨, 행인덱스)."""
-    labels = [("" if v is None else str(v)) for v in table.iloc[:, 0].tolist()]
+    labels = _table_label_column(table)
     best: float | None = None
     best_ref = ""
     best_lab = ""
@@ -1882,7 +1889,7 @@ def _lead_referenced_details(lead_table: pd.DataFrame, account: str) -> set[str]
     """Lead 시트의 해당 계정 블록에서 레퍼런스된 세부조서 토큰."""
     syns = _account_synonyms(account)
     own = _sheet_code(str(lead_table.attrs.get("source", "")).strip())
-    labels = [("" if v is None else str(v)) for v in lead_table.iloc[:, 0].tolist()]
+    labels = _table_label_column(lead_table)
     acct_rows = [
         i for i, lab in enumerate(labels)
         if any(_synonym_pos(lab, s) is not None for s in syns)
@@ -1916,8 +1923,8 @@ def _lead_detail_cross_verified(
     detail_token = _sheet_ref_token(detail_src)
     detail_key = detail_token.replace(".", "")
     syns = _account_synonyms(account)
-    lead_labels = [("" if v is None else str(v)) for v in lead_table.iloc[:, 0].tolist()]
-    detail_labels = [("" if v is None else str(v)) for v in detail_table.iloc[:, 0].tolist()]
+    lead_labels = _table_label_column(lead_table)
+    detail_labels = _table_label_column(detail_table)
 
     for i in range(len(lead_table)):
         row_text = _row_text(lead_table, i)
@@ -2765,7 +2772,7 @@ def _verify_table_totals(
     sheet = f"{sheet_no} ({sheet_title})" if sheet_title else sheet_no
     row_map = table.attrs.get("row_map")
     is_footnote = "주석" in sheet_no or "주석" in sheet_title
-    labels = [("" if v is None else str(v)) for v in table.iloc[:, 0].tolist()]
+    labels = _table_label_column(table)
 
     def excel_row(pos: int) -> int:
         if row_map and 0 <= pos < len(row_map):
