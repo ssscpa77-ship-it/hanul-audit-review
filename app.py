@@ -28,6 +28,7 @@ import output_formatter
 importlib.reload(output_formatter)
 
 import ai_review
+import ab_dashboard
 import fss_focus
 import knowledge_base as kb
 import note_merge
@@ -995,6 +996,198 @@ def render_landing() -> None:
         "본 시스템은 회계사의 전문적 판단을 보조하는 도구이며, 최종 책임은 담당 회계사에게 있습니다. "
         "관련 근거(기준·감리지적)는 검증된 자료(Hanul DB)에서만 인용합니다."
     )
+
+    st.divider()
+    if st.button(
+        "🔬 A/B 비교 대시보드",
+        use_container_width=True,
+        help="QRM 정답셋 없이 RAG variant A/B/C 구조·회귀 비교",
+    ):
+        st.session_state["ab_dashboard"] = True
+        st.rerun()
+
+
+def render_ab_dashboard() -> None:
+    """듀얼 RAG A/B/C 비교 — QRM 정답셋 없이 variant 성능·구조 비교."""
+    import pandas as pd
+
+    from rag_strategy import ReviewVariant
+
+    back_cols = st.columns([1, 4])
+    with back_cols[0]:
+        if st.button("← 심리 화면", use_container_width=True):
+            st.session_state.pop("ab_dashboard", None)
+            st.session_state.pop("ab_compare_result", None)
+            st.session_state.pop("ab_golden_report", None)
+            st.rerun()
+
+    st.markdown("### 🔬 A/B 비교 대시보드")
+    st.info(
+        "**QRM 실제 리뷰노트 정답셋은 아직 연동되지 않았습니다.** "
+        "그래도 **심리(리뷰노트 생성)** 는 기본 화면에서 그대로 실행할 수 있습니다. "
+        "이 화면은 교수님 설계안의 3가지 variant를 **구조·골든셋(모의)** 기준으로 비교합니다."
+    )
+
+    settings = ab_dashboard.current_settings()
+    kb_stats = kb.stats()
+    st.markdown(
+        '<div class="mode-banner mode-rule">'
+        f"운영 variant: <b>{settings['review_variant']}</b> · "
+        f"RAG: <b>{settings['rag_mode']}</b> · "
+        f"벡터: <b>{'준비됨 ' + str(kb_stats.get('vectors', 0)) + '건' if settings['vectors_ready'] == 'true' else '미생성'}</b>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    tab_golden, tab_upload, tab_guide = st.tabs(
+        ["① 골든셋 회귀 (모의)", "② 업로드 조서 비교", "③ Variant 안내"]
+    )
+
+    with tab_golden:
+        st.markdown("**4대중점 골든셋(모의 케이스)** 로 A/B/C variant를 회귀 검증합니다.")
+        for v in ab_dashboard.ALL_VARIANTS:
+            meta = ab_dashboard.VARIANT_META[v]
+            st.caption(f"**{meta['id']} {meta['short']}** — {meta['desc']}")
+
+        if st.button("▶ 골든셋 A/B/C 실행", type="primary", key="run_golden_ab"):
+            with st.spinner("골든셋 회귀 실행 중…"):
+                st.session_state["ab_golden_report"] = ab_dashboard.run_golden_ab_report()
+
+        report = st.session_state.get("ab_golden_report")
+        if report:
+            rows = ab_dashboard.golden_summary_rows(report)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            rec = report.get("recommendation", "structured_hybrid")
+            st.success(f"권장 variant (골든셋 Recall 기준): **{rec}**")
+            with st.expander("케이스별 상세"):
+                for block in report.get("variants", []):
+                    st.markdown(f"#### {block.get('variant')}")
+                    for d in block.get("details", []):
+                        status = "✅" if d.get("passed") else "❌"
+                        st.markdown(
+                            f"- {status} `{d.get('case_id')}` — "
+                            f"4대중점 노트 {len(d.get('focus_notes') or [])}건"
+                        )
+                        if d.get("errors"):
+                            for err in d["errors"]:
+                                st.caption(f"  · {err}")
+
+    with tab_upload:
+        st.markdown(
+            "업로드한 조서에 대해 **동일 입력**으로 3 variant를 비교합니다. "
+            "규칙엔진 결과는 공통이며, RAG 인용·서술 분리·(선택) AI 지적이 variant별로 달라집니다."
+        )
+        uploaded = st.file_uploader(
+            "비교용 조서 (A/B 전용)",
+            type=["pdf", "xlsx", "xls", "docx"],
+            accept_multiple_files=True,
+            key="ab_upload",
+        )
+        use_ai_ab = False
+        if ai_review.is_configured():
+            use_ai_ab = st.checkbox(
+                "AI 심층 분석 포함 (variant × 3회 — 시간·비용 증가)",
+                value=False,
+                key="ab_use_ai",
+            )
+        else:
+            st.caption("AI 비교는 OpenAI API 연동 후 사용할 수 있습니다.")
+
+        run_lite = st.button("⚡ 구조 비교 (빠름 · AI 없음)", key="ab_lite")
+        run_full = st.button(
+            "🔍 전체 비교" + (" · AI 포함" if use_ai_ab else ""),
+            disabled=not list(uploaded or []),
+            key="ab_full",
+        )
+
+        if (run_lite or run_full) and uploaded:
+            file_items = [(u.name, u.getvalue()) for u in uploaded]
+            with st.status("A/B 비교 실행 중…", expanded=True) as status:
+
+                def _step(msg: str) -> None:
+                    status.write(msg)
+
+                doc, parse_messages = parse_uploads(file_items)
+                if doc is None:
+                    st.error("조서 파싱 실패: " + "; ".join(parse_messages))
+                else:
+                    if parse_messages:
+                        st.warning("일부 파일 제외: " + "; ".join(parse_messages))
+                    if run_lite:
+                        _step("3 variant 구조 비교 (규칙엔진 + RAG)…")
+                        snaps = ab_dashboard.compare_variants_lite(doc)
+                    else:
+                        eng = extract_engagement(doc)
+                        mat = extract_materiality(doc)
+                        snaps = ab_dashboard.compare_variants_full(
+                            doc,
+                            use_ai=use_ai_ab,
+                            engagement=eng,
+                            materiality=mat,
+                            progress=_step,
+                        )
+                    st.session_state["ab_compare_result"] = snaps
+                    status.update(label="✅ A/B 비교 완료", state="complete")
+
+        snaps = st.session_state.get("ab_compare_result")
+        if snaps:
+            rows = ab_dashboard.comparison_table_rows(snaps)
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+            cols = st.columns(3)
+            for i, snap in enumerate(snaps):
+                try:
+                    v = ReviewVariant(snap.variant)
+                    meta = ab_dashboard.VARIANT_META[v]
+                except ValueError:
+                    meta = {"id": "?", "short": snap.variant, "desc": ""}
+                with cols[i % 3]:
+                    st.markdown(f"**{meta['id']} {meta['short']}**")
+                    st.caption(meta.get("desc", ""))
+                    st.metric("RAG 인용", snap.citation_count)
+                    st.metric("리뷰노트", sum(snap.importance.values()))
+                    if snap.ai_count:
+                        st.caption(f"AI {snap.ai_count} · 규칙 {snap.rule_count}")
+                    if snap.categories:
+                        top_cat = max(snap.categories, key=snap.categories.get)
+                        st.caption(f"주요 카테고리: {top_cat} ({snap.categories[top_cat]})")
+
+            with st.expander("Variant별 리뷰노트 미리보기 (상·중)"):
+                for snap in snaps:
+                    st.markdown(f"#### {snap.label}")
+                    shown = [
+                        n
+                        for n in snap.notes
+                        if n.get("importance") in ("상", "중")
+                    ][:5]
+                    if not shown:
+                        st.caption("상·중 지적 없음")
+                    for n in shown:
+                        st.markdown(
+                            f"- **[{n.get('importance')}]** {n.get('defect', '')[:120]}"
+                        )
+
+    with tab_guide:
+        st.markdown(
+            """
+            | ID | Variant | RAG | 조서 컨텍스트 | 정량 추출 |
+            |----|---------|-----|---------------|-----------|
+            | **A** | vector_only | ✅ 정성 RAG | 최소 | ❌ |
+            | **B** | file_context_only | ❌ | 전체 본문 | ❌ |
+            | **C** | structured_hybrid | ✅ 정성 RAG | 서술 블록 | ✅ 규칙엔진 |
+            """
+        )
+        st.markdown(
+            f"""
+            **현재 심리(기본 실행) 설정**
+            - `REVIEW_VARIANT` = `{settings['review_variant']}`
+            - `RAG_MODE` = `{settings['rag_mode']}`
+            - `DUAL_RAG_ENABLED` = `{settings['dual_rag']}`
+            - 임베딩: `{settings['embedding_provider']}`
+
+            QRM 정답셋이 준비되면 **②번(정답셋 import)** 연동 후 Recall·근거일치도 채점이 추가됩니다.
+            """
+        )
 
 
 def _format_source_display(source_name: str, source_files: list[str] | None) -> str:
@@ -2013,7 +2206,9 @@ def main() -> None:
         st.error(st.session_state["error"])
         st.session_state["error"] = None
 
-    if st.session_state.get("generated"):
+    if st.session_state.get("ab_dashboard"):
+        render_ab_dashboard()
+    elif st.session_state.get("generated"):
         render_results()
     else:
         render_landing()

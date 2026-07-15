@@ -202,10 +202,33 @@ def fallback_to_hardcoded_procedures() -> bool:
     return get_bool("FALLBACK_TO_HARDCODED_PROCEDURES", True)
 
 
+def review_variant() -> str:
+    """A/B variant: vector_only | file_context_only | structured_hybrid."""
+    return get("REVIEW_VARIANT", "structured_hybrid")
+
+
+def rag_mode() -> str:
+    """RAG mode: fts | vector | hybrid."""
+    return get("RAG_MODE", "hybrid")
+
+
+def embedding_provider() -> str:
+    """local (fastembed) | openai."""
+    return get("EMBEDDING_PROVIDER", "local")
+
+
+def embedding_model() -> str:
+    return get("EMBEDDING_MODEL", "")
+
+
+def dual_rag_enabled() -> bool:
+    return get_bool("DUAL_RAG_ENABLED", True)
+
+
 # ── 앱 버전 (UI·엑셀 표지 등) ─────────────────────────────────────
-APP_VERSION = "0.8.0"
-APP_RELEASE_LABEL = "FY2026 MVP"
-APP_BUILD_DATE = "2026-07-08"
+APP_VERSION = "0.9.0"
+APP_RELEASE_LABEL = "Dual-RAG 설계반영"
+APP_BUILD_DATE = "2026-07-15"
 
 
 def app_version_label() -> str:

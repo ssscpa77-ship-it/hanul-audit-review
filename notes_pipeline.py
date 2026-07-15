@@ -272,8 +272,26 @@ def simplify_note_outputs(notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return notes
 
 
-def post_process_notes(doc: ParsedDocument, notes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def post_process_notes(
+    doc: ParsedDocument,
+    notes: list[dict[str, Any]],
+    *,
+    variant: Any = None,
+) -> list[dict[str, Any]]:
     """전체 조서 검색 → 주제별 통합 → 계정별 약식 통합 → 경미 지적 제외."""
+    try:
+        import config as app_config
+        import dual_review_pipeline as drp
+
+        if app_config.dual_rag_enabled():
+            ctx = drp.build_dual_context(
+                doc,
+                variant=variant,
+                query=doc.text[:500] if doc.text else "",
+            )
+            notes = ctx.attach_to_notes(notes)
+    except Exception:  # noqa: BLE001
+        pass
     notes = filter_off_account_notes(doc, notes)
     notes = filter_cross_sheet_procedure_notes(doc, notes)
     notes = filter_cross_sheet_disclosure_notes(doc, notes)

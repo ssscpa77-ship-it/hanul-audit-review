@@ -465,11 +465,95 @@ def is_ready() -> bool:
 def stats() -> dict:
     """색인 현황 요약."""
     if not os.path.exists(STORE_PATH):
-        return {"documents": 0, "chunks": 0}
+        return {"documents": 0, "chunks": 0, "vectors": 0}
     con = _connect()
     docs = con.execute("SELECT count(*) FROM documents").fetchone()[0]
     chunks = con.execute("SELECT count(*) FROM chunks").fetchone()[0]
-    return {"documents": docs, "chunks": chunks}
+    out = {"documents": docs, "chunks": chunks, "vectors": 0}
+    try:
+        import embedding_index as ei
+
+        vs = ei.vector_stats(con)
+        out["vectors"] = vs.get("vectors", 0)
+        out["embedding_model"] = vs.get("model", "")
+        out["embedding_provider"] = vs.get("provider", "")
+    except Exception:  # noqa: BLE001
+        pass
+    return out
+
+
+def vectors_ready() -> bool:
+    if not is_ready():
+        return False
+    try:
+        import embedding_index as ei
+
+        return ei.vectors_available(_connect())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def retrieve_semantic(
+    query: str, k: int = 6, categories: list[str] | None = None
+) -> list[Citation]:
+    """벡터(semantic) 검색 — 정성 RAG."""
+    if not query.strip():
+        return []
+    try:
+        import embedding_index as ei
+
+        if not vectors_ready():
+            return retrieve(query, k=k, categories=categories)
+        rows = ei.search_semantic(STORE_PATH, query, k=k, categories=categories)
+        results: list[Citation] = []
+        for score, _rowid, path, category, title, chunk_text in rows:
+            source = f"{category} · {title}" if category else title
+            results.append(
+                Citation(
+                    source=source,
+                    snippet=_trim(chunk_text),
+                    ref=resolve_source_path(path),
+                    score=score,
+                )
+            )
+        return results
+    except Exception:  # noqa: BLE001
+        return retrieve(query, k=k, categories=categories)
+
+
+def _rrf_merge(
+    ranked_lists: list[list[Citation]], *, k: int = 60
+) -> list[Citation]:
+    """Reciprocal Rank Fusion."""
+    scores: dict[tuple[str, str], float] = {}
+    best: dict[tuple[str, str], Citation] = {}
+    for lst in ranked_lists:
+        for rank, c in enumerate(lst, 1):
+            key = (c.source, c.snippet[:80])
+            scores[key] = scores.get(key, 0.0) + 1.0 / (k + rank)
+            best[key] = c
+    ordered = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    out: list[Citation] = []
+    for key, sc in ordered:
+        c = best[key]
+        out.append(
+            Citation(source=c.source, snippet=c.snippet, ref=c.ref, score=sc)
+        )
+    return out
+
+
+def retrieve_hybrid(
+    query: str, k: int = 6, categories: list[str] | None = None
+) -> list[Citation]:
+    """FTS + Vector 하이브리드 (RRF 병합)."""
+    if not is_ready():
+        return []
+    fts_hits = retrieve(query, k=max(k * 3, 12), categories=categories)
+    if vectors_ready():
+        vec_hits = retrieve_semantic(query, k=max(k * 3, 12), categories=categories)
+        merged = _rrf_merge([fts_hits, vec_hits])[:k]
+        return merged
+    return fts_hits[:k]
 
 
 def retrieve(

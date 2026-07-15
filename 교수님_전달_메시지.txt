@@ -2,8 +2,8 @@
 
 한울회계법인 감사조서 자가검토 시스템 (검증용)
 
-▶ 접속 링크
-https://tire-sufficient-nathan-resorts.trycloudflare.com/?share=1
+▶ 접속 링크 (고정)
+https://hanul-audit-review.streamlit.app
 
 • PDF·엑셀 조서 업로드 → 리뷰노트 자동 생성
 • 규칙엔진 + Hanul DB + AI 심층 분석

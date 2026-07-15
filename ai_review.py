@@ -159,7 +159,14 @@ def run_ai_review(
     citations: list[kb.Citation] = []
     if kb.is_ready():
         query = f"{engagement.get('related_account','')} {engagement.get('accounting_standard','')} 감사조서 점검"
-        for c in kb.gather_citations(query, k_std=3, k_qna=2, k_case=2, k_wp=3, k_focus=1):
+        import rag_strategy as rs
+
+        cite_rows = (
+            rs.gather_qualitative_citations(query)
+            if rs.dual_rag_enabled()
+            else kb.gather_citations(query, k_std=3, k_qna=2, k_case=2, k_wp=3, k_focus=1)
+        )
+        for c in cite_rows:
             citations.append(kb.Citation(source=c["source"], snippet=c["snippet"], ref=c.get("ref", "")))
     citation_block = (
         "\n".join(f"- {c.source}: {c.snippet}" for c in citations)
@@ -353,8 +360,20 @@ def _review_one_sheet(
     sheet_text: str,
     engagement: dict[str, Any],
     max_notes: int,
+    *,
+    variant: Any = None,
 ) -> list[dict[str, Any]]:
-    cites = kb.gather_citations(_sheet_query(account, engagement)) if kb.is_ready() else []
+    import rag_strategy as rs
+
+    v = variant or rs.review_variant()
+    if kb.is_ready() and v != rs.ReviewVariant.FILE_CONTEXT_ONLY and rs.dual_rag_enabled():
+        cites = rs.gather_qualitative_citations(
+            _sheet_query(account, engagement), variant=v
+        )
+    elif kb.is_ready() and v != rs.ReviewVariant.FILE_CONTEXT_ONLY:
+        cites = kb.gather_citations(_sheet_query(account, engagement))
+    else:
+        cites = []
     # 해당 시트 계정과 무관한 다른 계정의 근거·감리사례는 인용 목록에서 제외
     cites = [
         c for c in cites
@@ -475,6 +494,8 @@ def run_sheet_reviews(
     engagement: dict[str, Any],
     max_notes_per_sheet: int = 1,
     progress: Callable[[float, str], None] | None = None,
+    *,
+    variant: Any = None,
 ) -> list[dict[str, Any]]:
     """조서를 시트 단위로 정독하며 RAG 근거 기반 AI 심층 리뷰를 수행.
 
@@ -525,7 +546,15 @@ def run_sheet_reviews(
         try:
             all_notes.extend(
                 _review_one_sheet(
-                    client, model, source, account, title, stext, engagement, max_notes_per_sheet
+                    client,
+                    model,
+                    source,
+                    account,
+                    title,
+                    stext,
+                    engagement,
+                    max_notes_per_sheet,
+                    variant=variant,
                 )
             )
         except Exception:  # noqa: BLE001 - 개별 시트 실패는 건너뛰고 계속
