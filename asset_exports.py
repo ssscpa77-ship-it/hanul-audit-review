@@ -15,6 +15,7 @@ EXPORT_REVIEW = EXPORT_DIR / "latest_review.xlsx"
 FOCUS_LISTED = EXPORT_DIR / "focus_listed.pdf"
 FOCUS_UNLISTED = EXPORT_DIR / "focus_unlisted.pdf"
 CASE_DIR = EXPORT_DIR / "cases"
+BUNDLED_DB_DIR = ROOT / "share" / "assets" / "hanul_db"
 
 
 def _norm_name(s: str) -> str:
@@ -26,11 +27,26 @@ def _focus_root_dir() -> str:
 
 
 def resolve_focus_pdf(is_listed: bool) -> str | None:
-    """Hanul DB-SSS 4대 중점사항 원문 PDF 경로."""
+    """Hanul DB-SSS 4대 중점사항 원문 PDF 경로 (로컬 우선, 클라우드는 번들 PDF)."""
     root = _focus_root_dir()
-    if not os.path.isdir(root):
-        return None
+    if os.path.isdir(root):
+        resolved = _resolve_focus_pdf_from_db(root, is_listed)
+        if resolved:
+            return resolved
 
+    bundled = FOCUS_LISTED if is_listed else FOCUS_UNLISTED
+    if bundled.is_file():
+        return str(bundled)
+
+    bundled_db = BUNDLED_DB_DIR / "4대 중점사항 감리대상"
+    if bundled_db.is_dir():
+        resolved = _resolve_focus_pdf_from_db(str(bundled_db), is_listed)
+        if resolved:
+            return resolved
+    return None
+
+
+def _resolve_focus_pdf_from_db(root: str, is_listed: bool) -> str | None:
     if is_listed:
         folder_keys = ("상장(IPO)", "상장", "금융감독원")
         file_keys = ("상장법인_4대", "상장법인", "중점심사 회계이슈")
@@ -85,18 +101,25 @@ def resolve_focus_pdf(is_listed: bool) -> str | None:
 
 def publish_focus_pdf(is_listed: bool) -> Path | None:
     """원문 PDF를 exports 폴더에 복사 (게이트웨이 직접 서빙)."""
+    dest = FOCUS_LISTED if is_listed else FOCUS_UNLISTED
     src = resolve_focus_pdf(is_listed)
     if not src or not os.path.isfile(src):
-        return None
-    dest = FOCUS_LISTED if is_listed else FOCUS_UNLISTED
+        return dest if dest.is_file() else None
     EXPORT_DIR.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(src, dest)
+    if Path(src).resolve() != dest.resolve():
+        shutil.copy2(src, dest)
     return dest
 
 
 def publish_case_file(file_path: str, note_id: str, case_no: str) -> Path | None:
     """감리지적 원문을 exports/cases 에 복사."""
     resolved = kb.resolve_source_path(file_path)
+    if not resolved or not os.path.isfile(resolved):
+        base = os.path.basename(file_path or "")
+        if base:
+            hit = CASE_DIR / base
+            if hit.is_file():
+                resolved = str(hit)
     if not resolved or not os.path.isfile(resolved):
         return None
     CASE_DIR.mkdir(parents=True, exist_ok=True)

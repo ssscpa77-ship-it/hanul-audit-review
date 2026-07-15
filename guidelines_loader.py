@@ -61,8 +61,11 @@ class EnhancedFocusIssue:
 
 
 def guidelines_root() -> Path:
-    base = Path(kb.SOURCE_DIR)
-    return base / rg.GUIDELINES_DB_SUBDIR
+    primary = Path(kb.SOURCE_DIR) / rg.GUIDELINES_DB_SUBDIR
+    if primary.is_dir():
+        return primary
+    bundled = Path(__file__).resolve().parent / "data" / "templates"
+    return bundled
 
 
 def _split_cells(val: Any) -> tuple[str, ...]:

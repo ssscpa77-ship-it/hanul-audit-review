@@ -19,9 +19,15 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 # 원본 자료 폴더 (환경변수로 재정의 가능)
+_ROOT = os.path.dirname(os.path.abspath(__file__))
 _OLD_DB_DIR = os.path.expanduser("~/Desktop/Hanul DB")
 _DEFAULT_DB_DIR = os.path.expanduser("~/Desktop/Hanul DB-SSS")
 SOURCE_DIR = os.environ.get("HANUL_DB_PATH", _DEFAULT_DB_DIR)
+BUNDLED_DB_DIR = os.path.join(_ROOT, "share", "assets", "hanul_db")
+
+
+def hanul_db_available() -> bool:
+    return os.path.isdir(SOURCE_DIR)
 
 
 def resolve_source_path(path: str) -> str:
@@ -34,6 +40,17 @@ def resolve_source_path(path: str) -> str:
         candidate = path.replace(_OLD_DB_DIR, _DEFAULT_DB_DIR, 1)
         if os.path.isfile(candidate):
             return candidate
+    for prefix in (_DEFAULT_DB_DIR, _OLD_DB_DIR, SOURCE_DIR):
+        if prefix and path.startswith(prefix):
+            rel = path[len(prefix) :].lstrip(os.sep)
+            bundled = os.path.join(BUNDLED_DB_DIR, rel)
+            if os.path.isfile(bundled):
+                return bundled
+    base = os.path.basename(path)
+    if base:
+        cases = os.path.join(_ROOT, "share", "exports", "cases", base)
+        if os.path.isfile(cases):
+            return cases
     return path
 # 색인 저장 위치
 STORE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "kb_store")

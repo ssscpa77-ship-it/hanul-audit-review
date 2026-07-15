@@ -822,7 +822,7 @@ def _render_focus_section(
             except OSError:
                 st.caption("원문 파일을 읽을 수 없습니다.")
     else:
-        st.caption("한울DB에서 원문 PDF를 찾지 못했습니다.")
+        st.caption("원문 PDF를 찾지 못했습니다. (클라우드 배포 시 share/exports 확인)")
 
 
 def _focus_source_dialog_body(is_listed: bool) -> None:
