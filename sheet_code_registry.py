@@ -88,7 +88,10 @@ def display_sheet_index(label: str) -> str:
     raw = str(label or "").strip()
     if not raw or raw == "-":
         return ""
-    head = re.sub(r"^.*/", "", raw).split()[0].upper().replace(",", ".")
+    head = re.sub(r"^.*/", "", raw).strip()
+    if not head:
+        return ""
+    head = head.split()[0].upper().replace(",", ".")
     head = re.sub(r"(?:\s*(?:LEAD|리드))$", "", head, flags=re.I).strip()
     if not is_sheet_index_token(head):
         return ""

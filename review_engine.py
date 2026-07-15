@@ -1676,8 +1676,13 @@ def _sheet_ref_token(label: str) -> str:
     raw = str(label or "").strip().upper()
     if not raw:
         return ""
-    token = raw.split("/")[-1].split()[0].replace(",", ".")
-    return token
+    tail = raw.split("/")[-1].strip()
+    if not tail:
+        return ""
+    parts = tail.split()
+    if not parts:
+        return ""
+    return parts[0].replace(",", ".")
 
 
 def _row_text(table: pd.DataFrame, row_idx: int) -> str:

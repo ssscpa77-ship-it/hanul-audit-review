@@ -2067,6 +2067,7 @@ def run_analysis(
         if status is not None:
             status.update(label=label)
 
+    step = "① 조서 파일 파싱"
     try:
         _step("① 조서 파일 파싱 중…")
         file_items = [(u.getvalue(), u.name) for u in uploads]
@@ -2101,6 +2102,7 @@ def run_analysis(
             if use_ai and ai_review.is_configured()
             else "규칙 기반"
         )
+        step = "② 규칙엔진·품질관리"
         _step(
             f"② 규칙엔진·품질관리 점검 중… (시트 {len(doc.tables)}개 · {ai_label})"
         )
@@ -2121,6 +2123,7 @@ def run_analysis(
         ai_error = None
         ai_notes: list[dict] = []
         if use_ai and ai_review.is_configured():
+            step = "③ AI 심층 분석"
             _step(f"③ 시트별 AI 심층 분석 중… ({ai_review.provider_label()} + Hanul DB)")
             bar = st.progress(0.0, text="AI 심층 분석 준비 중…")
 
@@ -2141,6 +2144,7 @@ def run_analysis(
         else:
             notes = rule_notes
 
+        step = "④ 리뷰노트 정리·근거 연결"
         _step("④ 리뷰노트 정리·근거 연결 중…")
         notes = notes_pipeline.post_process_notes(doc, notes)
         notes = output_formatter.apply_all(notes)
@@ -2187,10 +2191,13 @@ def run_analysis(
 
     except Exception as exc:  # noqa: BLE001 - 분석 실패 시 사용자에게 원인 표시
         st.session_state["generated"] = False
+        tb = traceback.format_exc().strip().splitlines()
+        tb_tail = "\n".join(tb[-4:]) if tb else ""
         st.session_state["error"] = (
-            "리뷰노트 생성 중 오류가 발생했습니다.\n"
-            f"{type(exc).__name__}: {exc}\n\n"
-            "대용량 조서는 1~3분 소요될 수 있습니다. 동일 오류가 반복되면 "
+            f"리뷰노트 생성 중 오류가 발생했습니다. ({step})\n"
+            f"{type(exc).__name__}: {exc}\n"
+            + (f"\n{tb_tail}\n" if tb_tail else "\n")
+            + "\n대용량 조서는 1~3분 소요될 수 있습니다. 동일 오류가 반복되면 "
             "파일 수를 줄이거나 AI 심층 분석을 끄고 다시 시도해 보십시오."
         )
         if status is not None:

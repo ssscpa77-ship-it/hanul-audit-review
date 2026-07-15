@@ -82,7 +82,7 @@ def merge_documents(docs: list["ParsedDocument"]) -> "ParsedDocument":
         page_count += doc.page_count
         for table in doc.tables:
             merged = table.copy()
-            orig_source = str(merged.attrs.get("source", "")).strip()
+            orig_source = str(merged.attrs.get("source", "")).strip().strip("/")
             merged.attrs = dict(merged.attrs)
             merged.attrs["source"] = f"{stem}/{orig_source}" if orig_source else stem
             merged.attrs["workpaper_file"] = doc.file_name
