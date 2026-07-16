@@ -489,6 +489,34 @@ CHECKLIST_GUIDANCE: dict[str, GuidanceSpec] = {
             "금융부채 분류 결론이 있는가?",
         ),
     },
+    # ── 2026-07-16 Hanul DB 보강 (상장 L1-05~L4-05, 비상장 U1-06~U4-07) ──
+    "L1-05": {
+        "related_sheet_codes": ("C", "P"),
+        "ai_review_questions": (
+            "해외 관계사 거래 통제지표 3요소를 검토하였는가?",
+            "우회 회수 매출채권이 위장 제거되지 않았는가?",
+        ),
+    },
+    "L1-06": {
+        "related_sheet_codes": ("C", "P"),
+        "ai_review_questions": (
+            "발생사실 증빙을 세금계산서에 한정하지 않았는가?",
+            "조회 미회신 건에 대체적 절차를 수행하였는가?",
+        ),
+    },
+    "L2-08": {"related_sheet_codes": ("E", "CS")},
+    "L2-09": {"related_sheet_codes": ("E", "E100")},
+    "L3-04": {"related_sheet_codes": ("F", "G", "CL")},
+    "L3-05": {"related_sheet_codes": ("F",)},
+    "L4-04": {"related_sheet_codes": ("CL", "A", "F", "G")},
+    "L4-05": {"related_sheet_codes": ("R", "FF")},
+    "U1-06": {"related_sheet_codes": ("P", "Q")},
+    "U2-09": {"related_sheet_codes": ("SAJ", "J", "T")},
+    "U2-10": {"related_sheet_codes": ("SAJ", "T")},
+    "U3-05": {"related_sheet_codes": ("CL", "A", "F", "G")},
+    "U3-06": {"related_sheet_codes": ("R", "FF")},
+    "U4-06": {"related_sheet_codes": ("CL",)},
+    "U4-07": {"related_sheet_codes": ("CL",)},
 }
 
 
@@ -497,7 +525,7 @@ def apply_guidance(row) -> None:
     spec = CHECKLIST_GUIDANCE.get(row.checklist_id, {})
     if not spec:
         return
-    if spec.get("review_procedure"):
+    if spec.get("review_procedure") and not row.review_procedure:
         row.review_procedure = spec["review_procedure"]
     if spec.get("related_sheet_codes") and not row.related_sheet_codes:
         row.related_sheet_codes = spec["related_sheet_codes"]

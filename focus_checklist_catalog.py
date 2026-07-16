@@ -37,6 +37,12 @@ class FocusCheckRow:
     ai_review_questions: tuple[str, ...] = ()
     trigger_accounts: tuple[str, ...] = ()
     na_condition: str = ""
+    # 2026-07-16 고도화: 감리지적사례·질의회신·회계감사기준·QC 심리점검표 보강 컬럼
+    standard_paragraphs: str = ""
+    audit_standard_ref: str = ""
+    additional_case_refs: str = ""
+    qna_refs: str = ""
+    qc_checklist_ref: str = ""
 
 
 def _listed_rows() -> list[FocusCheckRow]:
@@ -418,6 +424,11 @@ def _unlisted_rows() -> list[FocusCheckRow]:
 
 LISTED_CHECKLIST_2026: list[FocusCheckRow] = _listed_rows()
 UNLISTED_CHECKLIST_2026: list[FocusCheckRow] = _unlisted_rows()
+
+import focus_checklist_supplement_20260716 as _sup20260716
+
+LISTED_CHECKLIST_2026.extend(_sup20260716.LISTED_SUPPLEMENT_20260716)
+UNLISTED_CHECKLIST_2026.extend(_sup20260716.UNLISTED_SUPPLEMENT_20260716)
 
 _LISTED_META: dict[int, tuple[tuple[str, ...], tuple[str, ...]]] = {
     1: (("매출채권", "매출"), ("국외", "해외", "수출", "외화", "매출채권", "외상매출")),

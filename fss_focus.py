@@ -343,6 +343,31 @@ def _sheet_matches_issue(
     return any(kw.lower() in t_low for kw in issue.sheet_keywords if kw)
 
 
+def _focus_reference_parts(item: Any) -> list[str]:
+    """Hanul DB 2026-07-16 보강 컬럼 → reason/basis 보조 문장."""
+    parts: list[str] = []
+    for label, attr in (
+        ("기준문단", "standard_paragraphs"),
+        ("감사기준", "audit_standard_ref"),
+        ("추가사례", "additional_case_refs"),
+        ("질의회신", "qna_refs"),
+        ("QC심리", "qc_checklist_ref"),
+    ):
+        val = str(getattr(item, attr, "") or "").strip()
+        if val:
+            parts.append(f"{label}: {val[:220]}")
+    return parts
+
+
+def _focus_basis(item: Any, *, src: str, default: str) -> str:
+    basis = str(getattr(item, "basis", "") or default).strip()
+    refs = _focus_reference_parts(item)
+    if not refs:
+        return basis
+    extra = " | ".join(refs[:3])
+    return f"{basis} — {extra}" if basis else extra
+
+
 def _matched_sheets_for_item(
     doc: ParsedDocument,
     issue: FocusIssue,
@@ -586,8 +611,13 @@ def run_focus_review(
                     )
             if getattr(item, "materiality_note", ""):
                 reason_parts.append(f"({item.materiality_note})")
+            reason_parts.extend(_focus_reference_parts(item)[:2])
 
-            basis = str(getattr(item, "basis", "") or f"{src} 중점심사 회계이슈 사전예고")
+            basis = _focus_basis(
+                item,
+                src=src,
+                default=str(getattr(item, "basis", "") or f"{src} 중점심사 회계이슈 사전예고"),
+            )
             to_be = _item_to_be(item, gap)
             if procedure and procedure not in to_be:
                 to_be = f"{to_be}\n검토절차: {procedure}" if to_be else f"검토절차: {procedure}"
@@ -609,6 +639,7 @@ def run_focus_review(
                 golden_set_ids=gs_tuple,
                 review_procedure=procedure,
                 is_listed=listed,
+                item=item,
             ))
     return notes
 
@@ -629,9 +660,10 @@ def _focus_note(
     golden_set_ids: tuple[str, ...] = (),
     review_procedure: str = "",
     is_listed: bool = True,
+    item: Any | None = None,
 ):
     label = f"{sheet_no} ({sheet_title})" if sheet_no and sheet_title else sheet_no
-    return {
+    note = {
         "id": "", "importance": importance, "category": "중점감리",
         "defect": defect, "reason": reason, "basis": basis, "to_be": to_be,
         "sheet_no": sheet_no or "-", "sheet_title": sheet_title, "sheet": label,
@@ -645,6 +677,18 @@ def _focus_note(
         "focus_review_procedure": review_procedure,
         "is_listed": is_listed,
     }
+    if item is not None:
+        for key, attr in (
+            ("focus_standard_paragraphs", "standard_paragraphs"),
+            ("focus_audit_standard_ref", "audit_standard_ref"),
+            ("focus_additional_case_refs", "additional_case_refs"),
+            ("focus_qna_refs", "qna_refs"),
+            ("focus_qc_checklist_ref", "qc_checklist_ref"),
+        ):
+            val = str(getattr(item, attr, "") or "").strip()
+            if val:
+                note[key] = val
+    return note
 
 
 def build_focus_sheet(

@@ -47,6 +47,11 @@ class EnhancedChecklistItem:
     case_count: int = 0
     case_context: str = ""
     audit_focus: str = ""
+    standard_paragraphs: str = ""
+    audit_standard_ref: str = ""
+    additional_case_refs: str = ""
+    qna_refs: str = ""
+    qc_checklist_ref: str = ""
 
 
 @dataclass
@@ -196,6 +201,19 @@ def load_focus_issues_from_db(is_listed: bool) -> list[EnhancedFocusIssue] | Non
                 ),
                 review_procedure=str(
                     row.get("review_procedure") or row.get("구체적지침") or row.get("검토절차") or ""
+                ).strip(),
+                standard_paragraphs=str(
+                    row.get("standard_paragraphs") or row.get("기준문단") or ""
+                ).strip(),
+                audit_standard_ref=str(
+                    row.get("audit_standard_ref") or row.get("감사기준") or ""
+                ).strip(),
+                additional_case_refs=str(
+                    row.get("additional_case_refs") or row.get("추가사례") or ""
+                ).strip(),
+                qna_refs=str(row.get("qna_refs") or row.get("질의회신") or "").strip(),
+                qc_checklist_ref=str(
+                    row.get("qc_checklist_ref") or row.get("QC심리") or ""
                 ).strip(),
             )
         )
