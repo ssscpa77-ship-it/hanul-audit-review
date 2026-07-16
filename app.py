@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 import asset_exports
 import config  # noqa: F401 — .env 로드
@@ -323,224 +322,16 @@ def inject_theme() -> None:
 
 
 def inject_floating_nav(*, show_sections: bool = False) -> None:
-    """오른쪽 고정 이동 패널 — 스크롤 따라 표시, 맨 위·섹션 점프."""
-    sections_json = (
-        '[{"label":"📊 검토 요약","id":"hanul-section-summary"},'
-        '{"label":"📝 리뷰노트","id":"hanul-section-notes"}]'
-        if show_sections
-        else "[]"
-    )
-    components.html(
-        f"""
-        <script>
-        (function() {{
-            const win = window.parent;
-            const doc = win.document;
-            const SECTIONS = {sections_json};
-            const HEADER_OFFSET = 88;
-
-            function scrollRoots() {{
-                const seen = new Set();
-                const out = [];
-                function add(el) {{
-                    if (!el || seen.has(el)) return;
-                    seen.add(el);
-                    out.push(el);
-                }}
-                add(doc.scrollingElement);
-                add(doc.documentElement);
-                add(doc.body);
-                add(doc.querySelector('[data-testid="stAppViewContainer"]'));
-                add(doc.querySelector('section.main'));
-                add(doc.querySelector('.main'));
-                return out;
-            }}
-
-            function currentScrollY() {{
-                let y = win.scrollY || doc.documentElement.scrollTop || doc.body.scrollTop || 0;
-                scrollRoots().forEach(function(r) {{
-                    if (r.scrollTop > y) y = r.scrollTop;
-                }});
-                return y;
-            }}
-
-            function scrollAllTo(y, smooth) {{
-                const behavior = smooth ? 'smooth' : 'auto';
-                try {{ win.scrollTo({{ top: y, left: 0, behavior: behavior }}); }} catch (e) {{}}
-                scrollRoots().forEach(function(r) {{
-                    try {{
-                        if (typeof r.scrollTo === 'function') {{
-                            r.scrollTo({{ top: y, left: 0, behavior: behavior }});
-                        }} else {{
-                            r.scrollTop = y;
-                        }}
-                    }} catch (e) {{}}
-                }});
-            }}
-
-            function findAnchor(id) {{
-                let el = doc.getElementById(id)
-                    || doc.querySelector('[data-hanul-anchor="' + id + '"]');
-                if (el) return el;
-                if (id === 'hanul-page-top') {{
-                    return doc.querySelector('.app-header');
-                }}
-                if (id === 'hanul-section-summary') {{
-                    const titles = doc.querySelectorAll('.section-title');
-                    for (let i = 0; i < titles.length; i++) {{
-                        if ((titles[i].textContent || '').indexOf('검토 요약') >= 0) {{
-                            return titles[i];
-                        }}
-                    }}
-                }}
-                if (id === 'hanul-section-notes') {{
-                    const heads = doc.querySelectorAll('h3, .tier-head');
-                    for (let i = 0; i < heads.length; i++) {{
-                        const t = heads[i].textContent || '';
-                        if (t.indexOf('리뷰노트') >= 0) return heads[i];
-                    }}
-                }}
-                return null;
-            }}
-
-            function scrollToAnchor(id) {{
-                const el = findAnchor(id);
-                if (!el) {{
-                    scrollAllTo(0, true);
-                    return;
-                }}
-                try {{
-                    el.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
-                }} catch (e) {{}}
-                win.setTimeout(function() {{
-                    const rect = el.getBoundingClientRect();
-                    const y = Math.max(0, currentScrollY() + rect.top - HEADER_OFFSET);
-                    scrollAllTo(y, true);
-                }}, 60);
-            }}
-
-            function scrollToTop() {{
-                scrollToAnchor('hanul-page-top');
-                scrollAllTo(0, true);
-            }}
-
-            function injectStyles() {{
-                if (doc.getElementById('hanul-scroll-nav-style')) return;
-                const style = doc.createElement('style');
-                style.id = 'hanul-scroll-nav-style';
-                style.textContent = `
-                    .hanul-scroll-nav {{
-                        position:fixed; right:18px; top:50%; transform:translateY(-50%);
-                        z-index:999999; display:flex; flex-direction:column; gap:8px;
-                        pointer-events:none;
-                    }}
-                    .hanul-scroll-nav .hanul-nav-btn {{
-                        pointer-events:auto; display:flex; align-items:center;
-                        justify-content:center; gap:6px; min-width:132px; padding:10px 14px;
-                        background:#fff; color:#0A2A63; border:2px solid #123C97;
-                        border-radius:12px; font-size:.82rem; font-weight:800;
-                        box-shadow:0 4px 16px rgba(10,42,99,.18); cursor:pointer;
-                        text-decoration:none; box-sizing:border-box;
-                        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-                    }}
-                    .hanul-scroll-nav .hanul-nav-btn:hover {{
-                        background:#123C97; color:#fff;
-                    }}
-                    .hanul-scroll-nav .hanul-nav-btn.primary {{
-                        background:linear-gradient(135deg,#0A2A63 0%,#123C97 100%);
-                        color:#fff; border-color:#0A2A63;
-                    }}
-                    .hanul-scroll-nav .hanul-nav-btn.primary:hover {{ background:#082050; }}
-                    .hanul-scroll-nav .hanul-nav-btn.hidden {{
-                        opacity:0; pointer-events:none;
-                    }}
-                    .hanul-scroll-nav .hanul-nav-sep {{
-                        height:1px; background:#c5d4ea; margin:2px 8px; pointer-events:none;
-                    }}
-                    @media (max-width:900px) {{
-                        .hanul-scroll-nav {{
-                            right:10px; top:auto; bottom:20px; transform:none;
-                        }}
-                        .hanul-scroll-nav .hanul-nav-btn {{
-                            min-width:112px; padding:9px 11px; font-size:.78rem;
-                        }}
-                        .hanul-scroll-nav .hanul-nav-extra {{ display:none; }}
-                    }}
-                `;
-                doc.head.appendChild(style);
-            }}
-
-            function bindBtn(btn, handler) {{
-                btn.addEventListener('click', function(e) {{
-                    e.preventDefault();
-                    e.stopPropagation();
-                    handler();
-                }}, true);
-            }}
-
-            function ensureNav() {{
-                injectStyles();
-                let nav = doc.getElementById('hanul-scroll-nav');
-                if (nav) nav.remove();
-                nav = doc.createElement('nav');
-                nav.id = 'hanul-scroll-nav';
-                nav.className = 'hanul-scroll-nav';
-                nav.setAttribute('aria-label', '페이지 이동');
-
-                const topBtn = doc.createElement('a');
-                topBtn.href = '#hanul-page-top';
-                topBtn.className = 'hanul-nav-btn primary';
-                topBtn.textContent = '↑ 처음으로 돌아가기';
-                topBtn.title = '화면 맨 위로 이동';
-                bindBtn(topBtn, scrollToTop);
-                nav.appendChild(topBtn);
-
-                SECTIONS.forEach(function(s) {{
-                    const sep = doc.createElement('div');
-                    sep.className = 'hanul-nav-sep hanul-nav-extra';
-                    nav.appendChild(sep);
-                    const btn = doc.createElement('a');
-                    btn.href = '#' + s.id;
-                    btn.className = 'hanul-nav-btn hanul-nav-extra';
-                    btn.textContent = s.label;
-                    bindBtn(btn, function() {{ scrollToAnchor(s.id); }});
-                    nav.appendChild(btn);
-                }});
-
-                doc.body.appendChild(nav);
-                return nav;
-            }}
-
-            function bindScroll(nav) {{
-                const topBtn = nav.querySelector('.hanul-nav-btn.primary');
-                const alwaysTop = SECTIONS.length > 0;
-                function onScroll() {{
-                    const show = currentScrollY() > 120;
-                    if (topBtn) topBtn.classList.toggle('hidden', !alwaysTop && !show);
-                }}
-                win.addEventListener('scroll', onScroll, {{ passive: true }});
-                scrollRoots().forEach(function(r) {{
-                    r.addEventListener('scroll', onScroll, {{ passive: true }});
-                }});
-                onScroll();
-            }}
-
-            function init() {{
-                ensureNav();
-                bindScroll(doc.getElementById('hanul-scroll-nav'));
-            }}
-
-            if (doc.readyState === 'loading') {{
-                doc.addEventListener('DOMContentLoaded', init);
-            }} else {{
-                init();
-            }}
-            win.setTimeout(init, 300);
-        }})();
-        </script>
-        """,
-        height=0,
-    )
+    """결과 화면 섹션 이동 — Streamlit 기본 위젯만 사용 (React DOM 충돌 방지)."""
+    if not show_sections:
+        return
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.link_button("↑ 맨 위", "#hanul-page-top", use_container_width=True)
+    with c2:
+        st.link_button("📊 검토 요약", "#hanul-section-summary", use_container_width=True)
+    with c3:
+        st.link_button("📝 리뷰노트", "#hanul-section-notes", use_container_width=True)
 
 
 def page_anchor(anchor_id: str) -> None:
@@ -970,7 +761,7 @@ def render_landing() -> None:
                     "⏳ 대용량·다수 파일은 **1~3분** 걸릴 수 있습니다. "
                     "진행 단계가 갱신되면 정상 처리 중입니다."
                 )
-                with st.status("리뷰노트 생성 중…", expanded=True) as status:
+                with st.spinner("리뷰노트 생성 중…"):
                     run_analysis(
                         uploads,
                         use_ai,
@@ -978,9 +769,9 @@ def render_landing() -> None:
                         include_minor=include_minor,
                         is_listed=is_listed,
                         gaap=gaap,
-                        status=status,
                     )
-                st.rerun()
+                if st.session_state.get("generated"):
+                    st.rerun()
 
     # API 연동과 샘플 미리보기는 맨 아래 한 줄에 배치
     col_api, col_sample = st.columns([3, 2], vertical_alignment="top")
@@ -1102,11 +893,7 @@ def render_ab_dashboard() -> None:
 
         if (run_lite or run_full) and uploaded:
             file_items = [(u.name, u.getvalue()) for u in uploaded]
-            with st.status("A/B 비교 실행 중…", expanded=True) as status:
-
-                def _step(msg: str) -> None:
-                    status.write(msg)
-
+            with st.spinner("A/B 비교 실행 중…"):
                 doc, parse_messages = parse_uploads(file_items)
                 if doc is None:
                     st.error("조서 파싱 실패: " + "; ".join(parse_messages))
@@ -1114,7 +901,6 @@ def render_ab_dashboard() -> None:
                     if parse_messages:
                         st.warning("일부 파일 제외: " + "; ".join(parse_messages))
                     if run_lite:
-                        _step("3 variant 구조 비교 (규칙엔진 + RAG)…")
                         snaps = ab_dashboard.compare_variants_lite(doc)
                     else:
                         eng = extract_engagement(doc)
@@ -1124,10 +910,8 @@ def render_ab_dashboard() -> None:
                             use_ai=use_ai_ab,
                             engagement=eng,
                             materiality=mat,
-                            progress=_step,
                         )
                     st.session_state["ab_compare_result"] = snaps
-                    status.update(label="✅ A/B 비교 완료", state="complete")
 
         snaps = st.session_state.get("ab_compare_result")
         if snaps:
@@ -2053,7 +1837,6 @@ def run_analysis(
     include_minor: bool = False,
     is_listed: bool | None = None,
     gaap: str | None = None,
-    status=None,
 ) -> None:
     """업로드 파일(1개 이상)을 파싱·병합하고 규칙엔진(+선택적 AI)으로 검토."""
     import time
@@ -2062,10 +1845,7 @@ def run_analysis(
     t0 = time.perf_counter()
 
     def _step(msg: str) -> None:
-        elapsed = int(time.perf_counter() - t0)
-        label = f"{msg} ({elapsed}초)" if elapsed >= 3 else msg
-        if status is not None:
-            status.update(label=label)
+        pass  # st.spinner 사용 — 동적 위젯 갱신으로 인한 DOM 충돌 방지
 
     step = "① 조서 파일 파싱"
     try:
@@ -2125,10 +1905,8 @@ def run_analysis(
         if use_ai and ai_review.is_configured():
             step = "③ AI 심층 분석"
             _step(f"③ 시트별 AI 심층 분석 중… ({ai_review.provider_label()} + Hanul DB)")
-            bar = st.progress(0.0, text="AI 심층 분석 준비 중…")
 
             def _progress(frac: float, label: str) -> None:
-                bar.progress(min(max(frac, 0.0), 1.0), text=label)
                 _step(f"③ {label}")
 
             try:
@@ -2136,8 +1914,6 @@ def run_analysis(
                 ai_used = True
             except Exception as exc:  # noqa: BLE001 - API 오류를 사용자에게 표시
                 ai_error = f"AI 분석 중 오류가 발생했습니다: {exc}"
-            finally:
-                bar.empty()
 
         if ai_used:
             notes = note_merge.merge_review_notes(ai_notes, rule_notes)
@@ -2150,9 +1926,6 @@ def run_analysis(
         notes = output_formatter.apply_all(notes)
         notes = _renumber(notes)
         _attach_references(notes, engagement)
-
-        if status is not None:
-            status.update(label="✅ 리뷰노트 생성 완료", state="complete")
 
         year_s = str(engagement.get("audit_year", "2026"))
         year = int(year_s) if year_s.isdigit() else 2026
@@ -2200,8 +1973,6 @@ def run_analysis(
             + "\n대용량 조서는 1~3분 소요될 수 있습니다. 동일 오류가 반복되면 "
             "파일 수를 줄이거나 AI 심층 분석을 끄고 다시 시도해 보십시오."
         )
-        if status is not None:
-            status.update(label="❌ 리뷰노트 생성 실패", state="error")
         traceback.print_exc()
 
 
@@ -2216,11 +1987,10 @@ def main() -> None:
     if st.session_state.get("ab_dashboard"):
         render_ab_dashboard()
     elif st.session_state.get("generated"):
+        inject_floating_nav(show_sections=True)
         render_results()
     else:
         render_landing()
-
-    inject_floating_nav(show_sections=st.session_state.get("generated", False))
 
 
 if __name__ == "__main__":
