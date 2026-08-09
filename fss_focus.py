@@ -325,8 +325,14 @@ def _sheet_matches_issue(
         base = scr.parse_sheet_code(sheet_code) or sheet_code
         if sheet_code in codes or base in codes:
             return True
-        if any(sheet_code.startswith(c) or c.startswith(base) for c in codes):
-            return True
+        # 접두 매칭은 '알파벳 접두 동일 + 나머지가 숫자'인 경우로 한정한다
+        # (E100 ← E 허용, C ← CL 불허). 종전 역방향 매칭(`c.startswith(base)`)은
+        # 매출채권(C) 조서를 우발부채(CL) 체크항목에 매칭시켜 투자부동산·충당부채
+        # 리뷰노트가 매출채권 조서에 오귀속되는 결함을 유발했다(2026-08-09 정정).
+        for c in codes:
+            for cand in (sheet_code, base):
+                if cand.startswith(c) and cand[len(c):].isdigit():
+                    return True
 
     primary = re_engine.table_account(t)
     accounts = issue.related_accounts
