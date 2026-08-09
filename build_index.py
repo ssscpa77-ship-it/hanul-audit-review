@@ -18,6 +18,7 @@ import sys
 import time
 import unicodedata
 
+import chunking_strategy as cs
 import kb_extract as ke
 import knowledge_base as kb
 
@@ -27,7 +28,7 @@ except ImportError:  # pragma: no cover
     ei = None  # type: ignore[assignment]
 
 _MAX_CHARS = 2_000_000  # 문서당 텍스트 상한
-_MAX_CHUNKS = 400  # 문서당 청크 상한
+_MAX_CHUNKS = 3500  # 문서당 청크 상한 (2026-08-09: 구조인식 청킹으로 단위가 작아져 상향 — 974페이지급 통합 기준서 전문 손실 방지)
 
 
 def _init_db(con: sqlite3.Connection, *, with_vectors: bool = False) -> None:
@@ -139,7 +140,7 @@ def build(
             category = _category_of(path, root)
             title = _nfc(os.path.splitext(os.path.basename(path))[0])
             text = ke.extract_text(path)[:_MAX_CHARS]
-            chunks = ke.chunk_text(text)[:_MAX_CHUNKS]
+            chunks = cs.chunk_for_category(category, text, title)[:_MAX_CHUNKS]
 
             con.execute("DELETE FROM chunks WHERE path = ?", (path,))
             con.execute("DELETE FROM documents WHERE path = ?", (path,))

@@ -386,6 +386,45 @@ def load_enforcement_checklist_from_db(is_listed: bool) -> list[EnhancedChecklis
 
 
 @lru_cache(maxsize=1)
+def load_procedure_catalog_from_db() -> dict[str, list[EnhancedChecklistItem]] | None:
+    """계정별_필수절차_카탈로그_FY2026.xlsx(§B) 로드 — 멀티에이전트 아키텍처 설계안(2026-08-09) Phase 1.
+
+    반환: {계정과목: [EnhancedChecklistItem, ...]}. 계정 하나에 여러 procedure_id가
+    있을 수 있다(예: 재고자산 F1-01/F1-02/F1-03). `functional_agents.FA3` 및
+    `account_agents`가 이 카탈로그를 기준으로 절차 완전성(Pass/Fail)을 판정한다.
+    """
+    path = guidelines_root() / rg.TEMPLATE_FILES["procedures"]
+    if not path.is_file():
+        return None
+    rows = _read_xlsx(path, sheet="필수절차")
+    if not rows:
+        rows = _read_xlsx(path, sheet=0)
+    out: dict[str, list[EnhancedChecklistItem]] = {}
+    for row in rows:
+        account = str(row.get("account") or "").strip()
+        procedure_id = str(row.get("procedure_id") or "").strip()
+        if not account or not procedure_id:
+            continue
+        item = EnhancedChecklistItem(
+            name=str(row.get("procedure_name") or "").strip(),
+            checklist_id=procedure_id,
+            detect_all=_split_cells(row.get("detect_all")),
+            detect_any=_split_cells(row.get("detect_any")),
+            required_evidence=_split_cells(row.get("required_evidence")),
+            basis=str(row.get("basis") or "").strip(),
+            to_be=str(row.get("to_be") or "").strip(),
+            canonical_account=account,
+            sheet_code=str(row.get("cross_sheet") or "").strip(),
+            review_gap_type="절차누락",
+            procedure_gap=str(row.get("fail_if") or "").strip(),
+            review_procedure=str(row.get("trigger") or "").strip(),
+            acceptable_phrases=_split_cells(row.get("acceptable_conclusion")),
+        )
+        out.setdefault(account, []).append(item)
+    return out or None
+
+
+@lru_cache(maxsize=1)
 def load_golden_set_from_db() -> list[dict[str, Any]] | None:
     """골든셋 회귀 기준."""
     path = guidelines_root() / rg.TEMPLATE_FILES["golden_set"]

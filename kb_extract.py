@@ -221,7 +221,7 @@ def _excel_openpyxl(path: str) -> str:
                     lines.append(f"[행 {_EXCEL_MAX_ROWS}행까지 추출]")
                     break
                 cells = [_cell_str(c) for c in row[:_EXCEL_MAX_COLS]]
-                line = " ".join(c for c in cells if c)
+                line = " | ".join(c for c in cells if c)
                 if line:
                     lines.append(line)
             block = "\n".join(lines)
