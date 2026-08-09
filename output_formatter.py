@@ -30,7 +30,8 @@ def _extract_doc_no(source: str) -> str:
 
 
 _BASIS_NOISE_RE = re.compile(
-    r"한울\s*예시조서|검토준칙|회계포탈|동법시행령|윤리규정|품질관리제도",
+    r"한울\s*예시조서|검토준칙|회계포탈|동법시행령|윤리규정|품질관리제도|"
+    r"번대_|전사수준|통제활동|9200|9500|4000_계정별",
     re.I,
 )
 _PERIOD_SHEET_RE = re.compile(r"^\d{4}년말$", re.I)
@@ -224,8 +225,13 @@ def simplify_basis(basis: str) -> str:
     head = re.split(r"[;\n]", text)[0].strip()
     # [기준] 접두·파일명형 근거 제거
     head = re.sub(r"^\[(?:기준|감리지적사례)\]\s*", "", head)
-    if _BASIS_NOISE_RE.search(head) or re.search(r"\.xlsx|\.pdf|\.doc|FY\d{4}|_\d{8}_", head, re.I):
+    if _BASIS_NOISE_RE.search(head) or re.search(
+        r"\.xlsx|\.pdf|\.doc|FY\d{4}|_\d{8}_|_v\d+\b|^\d{3,}번", head, re.I
+    ):
         return ""
+    # 체크리스트 내용형 근거 허용
+    if head.startswith("감리지적 체크리스트"):
+        return head[:100]
     # KSA/K-IFRS 조항 형태만 유지
     if re.search(r"회계감사기준|K-IFRS|KSA|일반기업회계|금융감독원|한국공인회계사회", head):
         return head[:100]

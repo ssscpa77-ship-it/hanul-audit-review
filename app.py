@@ -1276,15 +1276,36 @@ def render_full_note(note: dict) -> None:
             st.markdown(f"**📍 위치**  {location}")
 
         st.markdown("**🔎 리뷰사항**")
+        # 제목은 짧게, 본문은 검토대상·미비사항만 (장문 dump 금지)
         st.write(note["defect"])
-        if note.get("reason"):
-            st.caption(note["reason"])
+        target = note.get("review_target") or ""
+        detail = note.get("issue_detail_line") or ""
+        reason = (note.get("reason") or "").strip()
+        if target:
+            st.markdown(f"- **검토대상:** {target}")
+        if detail and detail != target:
+            # issue_detail_line이 '검토대상: … · 미비: …' 형태면 미비만 분리 표시
+            if "미비:" in detail:
+                st.markdown(f"- **미비사항:** {detail.split('미비:', 1)[1].strip()}")
+            elif not target:
+                st.markdown(f"- {detail}")
+        elif reason:
+            # 220자 이내로 이미 축약된 reason
+            st.caption(reason[:220])
 
         st.markdown("**📖 리뷰근거**")
-        if "근거 미확인" in note["basis"]:
-            st.warning(f"{note['basis']} — Hanul DB 색인·검색 결과를 확인하세요.")
+        basis = str(note.get("basis") or "").strip()
+        if not basis or "근거 미확인" in basis:
+            st.warning(f"{basis or '근거 미확인'} — Hanul DB 색인·검색 결과를 확인하세요.")
+        elif _PROCEDURE_TEMPLATE_RE.search(basis):
+            focus = str(note.get("audit_focus") or note.get("procedure_gap") or "").strip()
+            st.info(
+                f"감리지적 체크리스트 — {focus[:70]}"
+                if focus
+                else "감리지적 체크리스트 — 관련 실증절차·결론 문서화"
+            )
         else:
-            st.info(note["basis"])
+            st.info(basis)
 
         cases = note.get("enforcement_cases")
         if cases:
@@ -1292,42 +1313,53 @@ def render_full_note(note: dict) -> None:
             primary = cases[0]
             with st.container(border=True):
                 summary = primary.get("summary_line") or primary.get("brief") or ""
-                head = f"**[{primary['number']}]**"
-                if primary.get("subject") and primary["subject"] not in summary:
-                    head += f" {primary['subject']}"
-                st.markdown(head)
-                if summary:
-                    st.write(summary)
-                if primary.get("brief") and primary["brief"] != summary:
-                    st.caption(primary["brief"])
-                fp = kb.resolve_source_path(primary.get("file_path") or "")
-                fname = primary.get("file") or "원문"
-                if fp and os.path.isfile(fp):
-                    base = config.public_share_base()
-                    published = asset_exports.publish_case_file(
-                        fp, str(note.get("id", "")), str(primary.get("number", ""))
-                    )
-                    if published and base:
-                        st.link_button(
-                            "⬇️ 원문보기 (한울DB)",
-                            asset_exports.direct_url(base, f"cases/{published.name}"),
-                            use_container_width=True,
+                # 지적과 무관한 애매 사례는 표시하지 않음
+                if re.search(r"우발부채·약정\s*주석", summary) and not re.search(
+                    r"우발|약정", f"{note.get('defect', '')}{note.get('violation_type', '')}"
+                ):
+                    st.caption("유사 감리지적사례를 찾지 못했습니다. (무관 사례는 표시하지 않음)")
+                else:
+                    head = f"**[{primary.get('number', '사례')}]**"
+                    if primary.get("subject") and primary["subject"] not in summary:
+                        head += f" {primary['subject']}"
+                    st.markdown(head)
+                    if summary:
+                        st.write(summary)
+                    why = primary.get("why_cited") or ""
+                    if why and why not in summary:
+                        st.caption(f"지적 사유: {why[:140]}")
+                    fp = kb.resolve_source_path(primary.get("file_path") or "")
+                    fname = primary.get("file") or "원문"
+                    if fp and os.path.isfile(fp):
+                        base = config.public_share_base()
+                        published = asset_exports.publish_case_file(
+                            fp, str(note.get("id", "")), str(primary.get("number", ""))
                         )
-                    else:
-                        try:
-                            with open(fp, "rb") as fh:
-                                st.download_button(
-                                    "⬇️ 원문보기 (한울DB)",
-                                    fh.read(),
-                                    file_name=fname,
-                                    key=f"case_dl_{note.get('id', '')}_{primary.get('number', '')}",
-                                    use_container_width=True,
-                                )
-                        except OSError:
-                            st.caption(f"출처: {fname}")
-                elif fname:
-                    st.caption(f"출처: {fname}")
-            others = [c for c in cases[1:] if c.get("has_number") and c.get("brief")]
+                        if published and base:
+                            st.link_button(
+                                "⬇️ 원문보기 (한울DB)",
+                                asset_exports.direct_url(base, f"cases/{published.name}"),
+                                use_container_width=True,
+                            )
+                        else:
+                            try:
+                                with open(fp, "rb") as fh:
+                                    st.download_button(
+                                        "⬇️ 원문보기 (한울DB)",
+                                        fh.read(),
+                                        file_name=fname,
+                                        key=f"case_dl_{note.get('id', '')}_{primary.get('number', '')}",
+                                        use_container_width=True,
+                                    )
+                            except OSError:
+                                st.caption(f"출처: {fname}")
+                    elif fname and fname != "원문":
+                        st.caption(f"출처: {fname}")
+            others = [
+                c for c in cases[1:]
+                if c.get("has_number") and c.get("brief")
+                and not re.search(r"우발부채·약정\s*주석", str(c.get("summary_line") or ""))
+            ]
             if others:
                 nums = ", ".join(
                     f"{c['number']}" + (f"({c['subject']})" if c.get("subject") else "")
@@ -1506,8 +1538,9 @@ _ISSUE_THEME_RULES: list[tuple[str, re.Pattern[str], dict[str, Any]]] = [
     ),
 ]
 _PROCEDURE_TEMPLATE_RE = re.compile(
-    r"4000_계정별|9500|(?:^|[_/])QC(?:[_/]|$)|감사절차\s?예시|Deficiency|실증절차"
-    r"|_\d{4}_v\d|\.xlsx|\.xls|\.docx?|\.pdf|\.hwpx|^\d{3,}_",
+    r"4000_계정별|9200|9500|번대_|전사수준|(?:^|[_/])QC(?:[_/]|$)|감사절차\s?예시|"
+    r"Deficiency|실증절차|통제활동"
+    r"|FY\d{4}|_\d{4}_v\d|_v\d+(?:_|\b)|\.xlsx|\.xls|\.docx?|\.pdf|\.hwpx|^\d{3,}_",
     re.IGNORECASE,
 )
 _CASE_ACCOUNT_REJECT: dict[str, tuple[str, ...]] = {
@@ -1528,49 +1561,118 @@ _WEAK_ISSUE_TERMS = frozenset(
 
 
 def _note_issue_theme(note: dict) -> tuple[str, dict[str, Any]] | None:
-    """리뷰노트의 지적 주제(재고 Cut-off·실사입회 등)를 판별."""
-    src = f"{note.get('defect', '')} {note.get('reason', '')}"
+    """리뷰노트의 지적 주제(재고 Cut-off·실사입회 등)를 판별.
+
+    사례 원문이 붙은 reason 전체가 아니라 defect·violation_type·계정 중심.
+    (과소계상 reason에 '충당'이 있어도 우발부채 주제로 오분류하지 않음)
+    """
+    # 제목·지적유형만 — case_context dump 가 reason에 있어도 주제 오염 방지
+    core = " ".join(
+        [
+            str(note.get("defect") or ""),
+            str(note.get("violation_type") or ""),
+            str(note.get("procedure_gap") or ""),
+            str(note.get("sheet_title") or ""),
+            str(note.get("review_target") or ""),
+        ]
+    )
+    src_full = f"{core} {note.get('reason', '')}"
     acct = re_engine.note_account(note)
+    vtype = str(note.get("violation_type") or "")
+
+    if re.search(r"과소계상|과대계상", core) or re.search(r"과소계상|과대계상", vtype):
+        direction = "과소계상" if "과소" in (core + vtype) else "과대계상"
+        return (
+            "amount_misstatement",
+            {
+                "title_need": (direction, "과소", "과대", "미계상", "허위", "매출", "수익", "잔액"),
+                "title_reject": ("우발부채", "약정 주석", "지급보증"),
+                "snippet_need": (direction, "과소", "과대", "미계상", "계상", "매출", "수익"),
+                "summary_core": f"{acct or ''} {direction}".strip(),
+            },
+        )
+
     if acct == "현금및예금" and re.search(
-        r"외부|조회|은행|confirmation|잔액", src, re.I
+        r"외부|조회|은행|confirmation|잔액", core, re.I
     ):
         for theme_id, pat, rules in _ISSUE_THEME_RULES:
             if theme_id == "cash_confirmation":
                 return theme_id, rules
+
+    # 우발부채: 계정 또는 defect 핵심에만 매칭 (reason dump의 '충당' 단어로는 매칭 금지)
     if acct == "우발부채·약정" or re.search(
-        r"우발|약정|지급보증|소송|담보|충당", src, re.I
+        r"우발부채|우발채무|약정\s*주석|지급보증|소송충당", core, re.I
     ):
         for theme_id, pat, rules in _ISSUE_THEME_RULES:
             if theme_id == "contingency_disclosure":
                 return theme_id, rules
+
     for theme_id, pat, rules in _ISSUE_THEME_RULES:
+        if theme_id == "contingency_disclosure":
+            continue  # 위에서만 처리
         if theme_id == "documentation" and re.search(
-            r"우발|약정|지급보증|소송|담보", src, re.I
+            r"우발|약정|지급보증|소송|담보", core, re.I
         ):
             continue
-        if pat.search(src):
+        if pat.search(core) or (theme_id != "documentation" and pat.search(src_full)):
             return theme_id, rules
     return None
 
 
 def _is_procedure_template(citation) -> bool:
     """조서양식·실증절차 파일명 등 — 리뷰근거로 부적합."""
-    return bool(_PROCEDURE_TEMPLATE_RE.search(citation.source))
+    hay = f"{getattr(citation, 'source', '')} {getattr(citation, 'ref', '')}"
+    return bool(_PROCEDURE_TEMPLATE_RE.search(hay))
+
+
+def _basis_content_line(citation) -> str:
+    """리뷰근거용 — 파일명 대신 내용 한 줄 요약."""
+    src = getattr(citation, "source", "") or ""
+    snip = " ".join((getattr(citation, "snippet", "") or "").split())
+    # 소스에 조항명이 있으면 우선
+    if re.search(r"회계감사기준|K-IFRS|KSA|일반기업회계|질의회신|중점감리", src):
+        label = src.split("·")[-1].strip() if "·" in src else src
+        label = re.sub(r"\.(xlsx|xls|pdf|docx?)$", "", label, flags=re.I)
+        if snip and not _PROCEDURE_TEMPLATE_RE.search(snip[:40]):
+            return f"{label[:50]} — {snip[:50]}"[:100]
+        return label[:100]
+    if snip and not _PROCEDURE_TEMPLATE_RE.search(snip[:60]):
+        # 스니펫에서 조항·핵심만
+        m = re.search(
+            r"(회계감사기준\s*\d+호[^。.\n]{0,40}|K-IFRS\s*제?\s*\d+호[^。.\n]{0,40})",
+            snip,
+        )
+        if m:
+            return m.group(1).strip()[:100]
+        return snip[:90]
+    return ""
 
 
 def _format_enforcement_summary(note: dict, case: dict) -> str:
-    """리뷰노트 맥락에 맞는 감리지적사례 한 줄 요약."""
+    """리뷰노트와 유사한 사례 + 왜 지적됐는지 사유를 한 줄로."""
     number = case.get("number") or "사례"
+    why = (
+        case.get("why_cited")
+        or case.get("brief")
+        or ""
+    ).strip()
+    # 애매·무관 요약 제거
+    if re.search(r"우발부채·약정\s*주석|약정\s*주석\s*공시\s*미흡", why) and not re.search(
+        r"우발|약정", f"{note.get('defect', '')}{note.get('violation_type', '')}"
+    ):
+        why = ""
+    vtype = str(note.get("violation_type") or case.get("subject") or "").strip()
+    acct = re_engine.note_account(note) or ""
+    if why and len(why) >= 10:
+        head = f"{number} — {acct} {vtype}".strip()
+        return f"{head}: {why}"[:160]
     themed = _note_issue_theme(note)
     if themed:
         _, rules = themed
         core = rules.get("summary_core", "감사절차 미흡")
-        return f"감리지적사례 {number} {core}으로 인한 지적"
-    acct = re_engine.note_account(note) or ""
-    subject = case.get("subject") or case.get("brief") or "감사절차 미흡"
-    if acct and acct not in subject:
-        return f"감리지적사례 {number} {acct} {subject[:28]}으로 인한 지적"
-    return f"감리지적사례 {number} {subject[:36]}으로 인한 지적"
+        return f"{number} — {core}으로 인한 지적 (유사 유형)"
+    subject = case.get("subject") or "감사절차 미흡"
+    return f"{number} — {acct} {subject[:40]}: 유사 유형으로 감리지적된 사례".strip()[:160]
 
 
 def _issue_terms(note: dict) -> set[str]:
@@ -1760,8 +1862,23 @@ def _attach_references(notes: list[dict], engagement: dict) -> None:
 
         note.pop("references", None)
 
-        # 감리지적사례 — 지적 주제(문서화·실사입회·Cut-off 등)와 맥락 일치하는 경우만
-        if wants_case and (issue_terms or _note_issue_theme(note)):
+        # 감리지적사례 — 체크리스트 부착 사례 우선, 아니면 주제 일치 검색
+        existing_cases = note.get("enforcement_cases") or []
+        if note.get("enforcement_protected") and existing_cases:
+            cleaned = []
+            for p in existing_cases[:2]:
+                summary = _format_enforcement_summary(note, p)
+                if re.search(r"우발부채·약정\s*주석", summary) and not re.search(
+                    r"우발|약정", f"{note.get('defect', '')}{note.get('violation_type', '')}"
+                ):
+                    continue
+                p["summary_line"] = summary
+                cleaned.append(p)
+            if cleaned:
+                note["enforcement_cases"] = cleaned
+            else:
+                note.pop("enforcement_cases", None)
+        elif wants_case and (issue_terms or _note_issue_theme(note)):
             deduped: list[dict] = []
             seen_no: set[str] = set()
             for c in kb.retrieve(query, k=10, categories=kb.ENFORCEMENT_CATEGORIES):
@@ -1775,6 +1892,7 @@ def _attach_references(notes: list[dict], engagement: dict) -> None:
                     continue
                 seen_no.add(p["number"])
                 p["brief"] = brief or p.get("brief", "")
+                p["why_cited"] = p["brief"]
                 p["summary_line"] = _format_enforcement_summary(note, p)
                 deduped.append(p)
             deduped.sort(key=lambda p: (not p["has_number"],))
@@ -1783,43 +1901,58 @@ def _attach_references(notes: list[dict], engagement: dict) -> None:
             else:
                 note.pop("enforcement_cases", None)
 
-        # 기준서·질의회신·4대중점 — basis 보강 (리뷰근거 한 줄)
+        # 기준서·질의회신 — 파일명 금지, 내용 한 줄
         _GENERIC_BASIS = {
             "회계감사기준", "K-IFRS", "K-IFRS/일반기준", "Hanul DB",
             "Hanul DB 자가검토_지침_템플릿 · 감리지적사례 체크리스트(필수 검토)",
         }
         basis = str(note.get("basis") or "").strip()
-        if category in NEEDS_BASIS and terms:
+        basis_ok = (
+            bool(basis)
+            and basis not in _GENERIC_BASIS
+            and not _PROCEDURE_TEMPLATE_RE.search(basis)
+            and "감리지적 체크리스트" in basis
+        )
+        if category in NEEDS_BASIS and terms and not basis_ok:
             std_cats = (
                 kb.STANDARDS_CATEGORIES
                 + kb.QNA_CATEGORIES
                 + kb.FOCUS_CATEGORIES
-                + kb.WORKPAPER_CATEGORIES
             )
-            acct_q = f"{note_acct} {query}"
+            acct_q = f"{note_acct} {note.get('violation_type', '')} {note.get('defect', '')}"
             for c in kb.retrieve(acct_q, k=8, categories=std_cats):
                 if not _on_account(c):
                     continue
-                if category == "절차누락":
-                    if not any(
-                        cat in c.source for cat in kb.WORKPAPER_CATEGORIES
-                    ) and not _is_relevant(c, terms):
-                        continue
-                elif not _is_relevant(c, terms):
+                if _is_procedure_template(c):
                     continue
-                src = c.source.split("·")[-1].strip()[:80] if "·" in c.source else c.source[:80]
-                if not basis or basis in _GENERIC_BASIS or len(basis) < 12:
-                    note["basis"] = src
-                    if category == "절차누락" and any(
-                        cat in c.source for cat in kb.WORKPAPER_CATEGORIES
-                    ):
-                        note["workpaper_ref"] = (
-                            c.snippet[:160] + "…" if len(c.snippet) > 160 else c.snippet
-                        )
+                if not _is_relevant(c, terms):
+                    continue
+                line = _basis_content_line(c)
+                if not line or _PROCEDURE_TEMPLATE_RE.search(line):
+                    continue
+                if (
+                    not basis
+                    or basis in _GENERIC_BASIS
+                    or _PROCEDURE_TEMPLATE_RE.search(basis)
+                    or len(basis) < 12
+                ):
+                    note["basis"] = line
                     break
-                if src not in basis:
-                    note["basis"] = f"{basis}; {src}"[:120]
+                if line not in basis:
+                    note["basis"] = f"{basis}; {line}"[:120]
                     break
+        final_basis = str(note.get("basis") or "").strip()
+        if final_basis and _PROCEDURE_TEMPLATE_RE.search(final_basis):
+            focus = str(note.get("audit_focus") or note.get("procedure_gap") or "").strip()
+            note["basis"] = (
+                f"감리지적 체크리스트 — {focus[:70]}"
+                if focus
+                else "감리지적 체크리스트 — 관련 실증절차·결론 문서화"
+            )
+        elif final_basis:
+            simple = output_formatter.simplify_basis(final_basis)
+            if simple:
+                note["basis"] = simple
 
 
 def _count_by_category(notes: list[dict]) -> dict[str, int]:

@@ -1,4 +1,10 @@
-"""계정·조서인덱스별 감리지적 체크리스트 기반 자가검토."""
+"""계정·조서인덱스별 감리지적 체크리스트 기반 자가검토.
+
+리뷰노트 설계 원칙 (2026-08-09):
+1) 리뷰사항 — 검토대상·누락절차를 짧게·구체적으로 (사례 원문 dump 금지)
+2) 리뷰근거 — 파일명 금지, 점검 내용 한 줄
+3) 감리지적사례 — 지적유형·계정과 유사한 사례만, 왜 지적됐는지 사유 명확
+"""
 
 from __future__ import annotations
 
@@ -10,6 +16,10 @@ import knowledge_base as kb
 import review_engine as re_engine
 import sheet_code_registry as scr
 from parser import ParsedDocument
+
+_REASON_MAX = 220
+_FOCUS_MAX = 90
+_BRIEF_MAX = 140
 
 
 def _sheet_text(table) -> str:
@@ -51,37 +61,140 @@ def _check_item_mandatory(stext: str, item: gl.EnhancedChecklistItem) -> str | N
     return item.review_gap_type or "검토누락"
 
 
+def _clip(text: str, limit: int) -> str:
+    t = " ".join((text or "").split()).strip()
+    if len(t) <= limit:
+        return t
+    return t[: limit - 1].rstrip() + "…"
+
+
+def _first_sentence(text: str, limit: int = 120) -> str:
+    """사례 맥락에서 첫 핵심 문장만 (다중 사례번호 나열 제거)."""
+    t = " ".join((text or "").split()).strip()
+    if not t:
+        return ""
+    # FSS/KICPA 번호 나열·세미콜론 분절 중 첫 의미 단위
+    parts = re.split(r"[;|]|FSS\d{4}|KICPA-", t)
+    for p in parts:
+        p = p.strip(" -—·,.")
+        if len(p) >= 12 and not re.fullmatch(r"[\d\-_/]+", p):
+            return _clip(p, limit)
+    return _clip(t, limit)
+
+
+def _review_target(sheet_title: str, code: str, vtype: str) -> str:
+    """검토대상을 회계사가 바로 알 수 있게."""
+    acct = sheet_title or code
+    v = (vtype or "지적유형").strip()
+    return f"{acct}({code}) 조서 — 「{v}」 위험 관련 실증절차·결론"
+
+
+def _build_defect(tag: str, code: str, sheet_title: str, item: gl.EnhancedChecklistItem) -> str:
+    vtype = (item.violation_type or item.name or "검토항목").strip()
+    acct = sheet_title or code
+    # 예: [감리지적·검토누락] 매출(P) — 과소계상 위험 검토 누락
+    return f"[감리지적·{tag}] {acct}({code}) — {vtype} 위험 검토 누락"
+
+
+def _build_reason(
+    sheet_title: str,
+    code: str,
+    item: gl.EnhancedChecklistItem,
+    gap: str,
+) -> str:
+    """짧게: ①검토대상 ②미충족 항목 ③무엇을 볼지. 사례 원문 dump 금지."""
+    vtype = (item.violation_type or item.name or "").strip()
+    target = _review_target(sheet_title, code, vtype)
+    gap_label = "검토 흔적 없음" if gap == "검토누락" else "결론·판단 기재 미비"
+    proc = _clip(item.procedure_gap or item.name or "필수 실증절차", 80)
+    focus = _clip(item.audit_focus or "", _FOCUS_MAX)
+    cid = item.checklist_id or ""
+
+    lines = [
+        f"검토대상: {target}.",
+        f"체크리스트 {cid} 미충족({gap_label}) — {proc}.",
+    ]
+    if focus:
+        lines.append(f"조서에서 확인할 것: {focus}.")
+    return _clip(" ".join(lines), _REASON_MAX)
+
+
+def _build_basis(item: gl.EnhancedChecklistItem) -> str:
+    """파일명·템플릿 코드 금지 — 점검 내용 한 줄."""
+    focus = _clip(item.audit_focus or "", 70)
+    if focus:
+        return f"감리지적 체크리스트 — {focus}"
+    proc = _clip(item.procedure_gap or item.name or "", 70)
+    if proc:
+        return f"감리지적 체크리스트 — {proc}"
+    return "감리지적 체크리스트(필수 검토) — 관련 실증절차·결론 문서화"
+
+
+def _case_why(item: gl.EnhancedChecklistItem, num: str) -> str:
+    """왜 지적받았는지 — 체크리스트 맥락에서 짧게."""
+    ctx = item.case_context or item.case_example or ""
+    # 해당 번호가 포함된 구간 우선
+    if num and ctx and num in ctx:
+        idx = ctx.find(num)
+        window = ctx[idx + len(num) : idx + len(num) + 180].lstrip(" :-—·,.")
+        why = _first_sentence(window, 100)
+        why = re.sub(r"^\d{1,4}\s+", "", why)
+        if why and len(why) >= 10:
+            return why
+    why = _first_sentence(ctx, 100)
+    why = re.sub(r"^\d{1,4}\s+", "", why)
+    if why:
+        return why
+    focus = _clip(item.audit_focus or "", 80)
+    if focus:
+        return f"{focus} 미흡"
+    return _clip(item.procedure_gap or item.violation_type or "관련 절차 미흡", 80)
+
+
 def _enforcement_cases_for_item(item: gl.EnhancedChecklistItem) -> list[dict[str, Any]]:
-    """체크리스트에 연결된 과거 지적사례 샘플을 enforcement_cases 형식으로."""
-    brief_src = item.case_context or item.case_example or item.procedure_gap or ""
+    """지적유형과 직접 연결된 사례만, 사유 명확한 summary."""
     cases: list[dict[str, Any]] = []
+    vtype = (item.violation_type or item.name or "").strip()
     nums = [n.strip() for n in re.split(r"[;|]", item.case_numbers or "") if n.strip()]
+    # 사례번호가 맥락 문자열에 섞여 있는 경우도 추출
+    if not nums:
+        nums = re.findall(r"(?:FSS|KICPA)[\w\-]+", item.case_context or item.case_example or "", re.I)[:2]
+
     for num in nums[:2]:
+        why = _case_why(item, num)
+        # 애매한 요약(번호만·템플릿명) 제외
+        if len(why) < 8 or re.search(r"FY\d{4}|번대_|전사수준|_v\d", why, re.I):
+            why = f"{vtype} — 유사 유형으로 감리에서 지적된 사례"
+        summary = f"{num} — {vtype}: {why}"
         cases.append(
             {
                 "number": num,
-                "subject": item.violation_type or item.name,
-                "brief": brief_src[:280],
-                "summary_line": (
-                    f"감리지적사례 {num} {item.violation_type or ''}"
-                    + (f" — {item.audit_focus[:60]}" if item.audit_focus else " — 과거 지적사례")
-                ),
+                "subject": vtype,
+                "brief": _clip(why, _BRIEF_MAX),
+                "summary_line": _clip(summary, 160),
                 "has_number": True,
                 "file": item.case_source or "자가검토_지침_템플릿",
+                "why_cited": why,
             }
         )
+
     if not cases and (item.case_example or item.case_context):
+        why = _case_why(item, "")
+        if len(why) >= 12 and not re.search(r"우발부채|약정\s*주석", why):
+            # 지적유형과 무관한 우발부채 등 애매 문구는 붙이지 않음
+            if vtype and vtype not in why and "과소" not in why and "과대" not in why:
+                # still allow if procedure_gap related
+                if not (item.procedure_gap and any(w in why for w in item.procedure_gap[:20])):
+                    return []
         cases.append(
             {
-                "number": item.checklist_id or "",
-                "subject": item.violation_type or item.name,
-                "brief": brief_src[:280],
-                "summary_line": (
-                    f"감리지적 체크리스트 {item.checklist_id} — {item.violation_type}"
-                    + (f" ({item.audit_focus[:50]})" if item.audit_focus else "")
-                ),
+                "number": item.checklist_id or "체크리스트",
+                "subject": vtype,
+                "brief": _clip(why, _BRIEF_MAX),
+                "summary_line": _clip(f"{item.checklist_id} — {vtype}: {why}", 160),
                 "has_number": bool(item.checklist_id),
                 "file": item.case_source or "자가검토_지침_템플릿",
+                "why_cited": why,
             }
         )
     return cases
@@ -134,27 +247,16 @@ def run_enforcement_checklist_review(
             seen.add(key)
 
             tag = "검토누락" if gap == "검토누락" else "결론미비"
-            defect = f"[감리지적·{tag}] {code} — {item.violation_type or item.name}"
-            case_ref = item.case_numbers or item.checklist_id or "자가검토_지침_템플릿"
-            context = item.case_context or item.case_example or ""
-            focus = item.audit_focus or ""
-            reason = (
-                f"「{sheet_title}」({code}) 조서 — 자가검토 지침 템플릿 감리지적 체크리스트 "
-                f"「{item.checklist_id}」 항목 미충족. "
-                f"{item.procedure_gap or item.name}. "
-            )
-            if context:
-                reason += f"과거 지적 맥락: {context} "
-            if focus:
-                reason += f"점검 포인트: {focus} "
-            if not context:
-                reason += f"과거 지적사례 샘플: {case_ref}"
+            vtype = item.violation_type or item.name or ""
+            defect = _build_defect(tag, code, sheet_title, item)
+            reason = _build_reason(sheet_title, code, item, gap)
+            basis = _build_basis(item)
             note = re_engine._note(
                 category="감리지적체크",
                 importance="중",
                 defect=defect,
                 reason=reason,
-                basis="Hanul DB 자가검토_지침_템플릿 · 감리지적사례 체크리스트(필수 검토)",
+                basis=basis,
                 to_be=item.to_be or item.to_be_if_missing or "해당 절차를 수행·문서화하십시오.",
                 sheet_no=code,
                 sheet_title=sheet_title,
@@ -162,21 +264,16 @@ def run_enforcement_checklist_review(
             note["enforcement_protected"] = True
             note["enforcement_checklist_id"] = item.checklist_id
             note["enforcement_cases"] = _enforcement_cases_for_item(item)
-            note["violation_type"] = item.violation_type or ""
+            note["violation_type"] = vtype
             note["procedure_gap"] = item.procedure_gap or ""
             note["case_example"] = item.case_example or ""
             note["case_context"] = item.case_context or ""
             note["audit_focus"] = item.audit_focus or ""
-            vtype = item.violation_type or item.name or ""
-            pgap = item.procedure_gap or item.name or ""
-            ctx_snip = (item.case_context or item.case_example or item.case_numbers or "")[:120]
-            focus_snip = (item.audit_focus or "")[:80]
-            detail = f"{code} {vtype} — {pgap}"
-            if ctx_snip:
-                detail += f" | 맥락: {ctx_snip}"
-            if focus_snip:
-                detail += f" | 점검: {focus_snip}"
-            note["issue_detail_line"] = detail
+            note["review_target"] = _review_target(sheet_title, code, vtype)
+            note["issue_detail_line"] = (
+                f"검토대상: {note['review_target']} · "
+                f"미비: {_clip(item.procedure_gap or item.name or '', 70)}"
+            )
             notes.append(note)
 
     return notes
