@@ -225,10 +225,15 @@ def dual_rag_enabled() -> bool:
     return get_bool("DUAL_RAG_ENABLED", True)
 
 
+def multi_agent_review_enabled() -> bool:
+    """Claude Hanul DB 멀티에이전트 파이프라인 — 기본 ON (MULTI_AGENT_REVIEW=0 으로 끌 수 있음)."""
+    return get_bool("MULTI_AGENT_REVIEW", True)
+
+
 # ── 앱 버전 (UI·엑셀 표지 등) ─────────────────────────────────────
-APP_VERSION = "0.9.0"
-APP_RELEASE_LABEL = "Dual-RAG 설계반영"
-APP_BUILD_DATE = "2026-07-15"
+APP_VERSION = "0.9.1"
+APP_RELEASE_LABEL = "멀티에이전트·필수절차 카탈로그 반영"
+APP_BUILD_DATE = "2026-08-09"
 
 
 def app_version_label() -> str:

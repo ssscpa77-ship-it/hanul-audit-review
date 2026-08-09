@@ -388,6 +388,23 @@ def render_system_status(*, compact: bool = False) -> None:
         enf_chip = f'<span class="status-chip chip-on">✓ 감리지적 체크리스트 {enf_n}항목</span>'
     except Exception:  # noqa: BLE001
         enf_chip = '<span class="status-chip chip-wait">감리지적 체크리스트</span>'
+    try:
+        import guidelines_loader as gl
+
+        gl.load_procedure_catalog_from_db.cache_clear()
+        cat = gl.load_procedure_catalog_from_db() or {}
+        proc_n = sum(len(v) for v in cat.values())
+        proc_chip = (
+            f'<span class="status-chip chip-on">✓ 필수절차 카탈로그 {len(cat)}계정·{proc_n}항</span>'
+            if cat
+            else '<span class="status-chip chip-wait">필수절차 카탈로그</span>'
+        )
+    except Exception:  # noqa: BLE001
+        proc_chip = '<span class="status-chip chip-wait">필수절차 카탈로그</span>'
+    if config.multi_agent_review_enabled():
+        ma_chip = '<span class="status-chip chip-on">✓ 멀티에이전트</span>'
+    else:
+        ma_chip = '<span class="status-chip chip-wait">멀티에이전트 OFF</span>'
     if ai_ok:
         ai_chip = (
             f'<span class="status-chip chip-on">✓ {ai_review.provider_label()}'
@@ -401,6 +418,8 @@ def render_system_status(*, compact: bool = False) -> None:
         f'<span class="status-chip chip-on">{config.app_version_label()}</span>',
         f'<span class="status-chip chip-on">🔗 {config.primary_access_url()}</span>',
         '<span class="status-chip chip-on">✓ 규칙엔진</span>',
+        ma_chip,
+        proc_chip,
         enf_chip,
         (
             f'<span class="status-chip chip-on">✓ Hanul DB · {kb.stats()["documents"]:,}건</span>'
@@ -1123,7 +1142,9 @@ def render_results() -> None:
         mode = "AI+규칙 병합" if meta.get("ai_used") else "규칙엔진만"
         st.success(
             f"점검 결과, 현재 범위에서 지적사항이 발견되지 않았습니다. "
-            f"(모드: {mode} · 규칙 {meta.get('rule_count', 0)}건 · AI {meta.get('ai_count', 0)}건)"
+            f"(모드: {mode} · 규칙 {meta.get('rule_count', 0)}건 · AI {meta.get('ai_count', 0)}건"
+            + (f" · 멀티에이전트 {meta.get('ma_count', 0)}건" if meta.get("multi_agent") else "")
+            + ")"
         )
         if not meta.get("kb_ready"):
             st.warning("Hanul DB 미색인 — 표준절차·감리지적 매칭이 제한될 수 있습니다.")
@@ -2032,6 +2053,30 @@ def run_analysis(
             progress=_rule_progress,
         )
 
+        ma_notes: list[dict] = []
+        ma_meta: dict[str, Any] = {}
+        if config.multi_agent_review_enabled():
+            step = "②-b 멀티에이전트"
+            _step("②-b 멀티에이전트(필수절차·계정전문) 점검 중…")
+            try:
+                import agent_orchestrator as orch
+
+                ma_result = orch.run_multi_agent_review(
+                    doc,
+                    materiality=mat,
+                    is_listed=engagement.get("is_listed"),
+                    engagement=engagement,
+                )
+                ma_notes = list(ma_result.get("findings") or [])
+                ma_meta = {
+                    "tier_counts": ma_result.get("tier_counts") or {},
+                    "accounts_reviewed": ma_result.get("accounts_reviewed") or [],
+                    "audit_trail_n": len(ma_result.get("audit_trail") or []),
+                }
+            except Exception as exc:  # noqa: BLE001
+                st.session_state["ma_error"] = f"멀티에이전트 실행 오류: {exc}"
+                ma_notes = []
+
         ai_used = False
         ai_error = None
         ai_notes: list[dict] = []
@@ -2052,6 +2097,9 @@ def run_analysis(
             notes = note_merge.merge_review_notes(ai_notes, rule_notes)
         else:
             notes = rule_notes
+        if ma_notes:
+            # Claude Hanul DB 멀티에이전트 findings 병합 (필수절차 카탈로그 기반)
+            notes = note_merge.merge_review_notes(ma_notes, notes)
 
         step = "④ 리뷰노트 정리·근거 연결"
         _step("④ 리뷰노트 정리·근거 연결 중…")
@@ -2077,6 +2125,9 @@ def run_analysis(
             "ai_used": ai_used,
             "rule_count": len(rule_notes),
             "ai_count": len(ai_notes),
+            "ma_count": len(ma_notes),
+            "ma_meta": ma_meta,
+            "multi_agent": config.multi_agent_review_enabled(),
             "materiality": engagement.get("materiality_display", "미확인"),
             "kb_ready": kb.is_ready(),
             "include_minor": include_minor,
