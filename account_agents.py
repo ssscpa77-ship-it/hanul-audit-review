@@ -41,15 +41,14 @@ ACCOUNT_AGENT_IDS: dict[str, str] = {
 
 def _sheet_text_for_account(doc: ParsedDocument, account: str) -> tuple[str, str]:
     """해당 계정의 조서 텍스트와 대표 sheet_no를 반환."""
-    texts: list[str] = []
+    stext = re_engine.account_sheet_text(doc, account)
     sheet_no = ""
     for t in doc.tables:
         if re_engine.table_account(t) != account:
             continue
-        texts.append(re_engine._sheet_text(t))
-        if not sheet_no:
-            sheet_no = str(t.attrs.get("source", "")).strip()
-    return "\n".join(texts), sheet_no
+        sheet_no = str(t.attrs.get("source", "")).strip()
+        break
+    return stext, sheet_no
 
 
 # --------------------------------------------------------------------------
@@ -191,7 +190,9 @@ def run_account_agent(account: str, doc: ParsedDocument) -> list[dict[str, Any]]
         return []
     specialized = _SPECIALIZED.get(account)
     findings = specialized(doc, stext, sheet_no) if specialized else []
-    findings += _generic_risk_scan(account, agent_id, stext, sheet_no)
+    # 전문화 에이전트가 있으면 카탈로그 부분충족 스캔은 생략(FA-3와 중복·노이즈)
+    if specialized is None:
+        findings += _generic_risk_scan(account, agent_id, stext, sheet_no)
     return findings
 
 

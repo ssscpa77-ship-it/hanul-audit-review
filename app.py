@@ -391,7 +391,6 @@ def render_system_status(*, compact: bool = False) -> None:
     try:
         import guidelines_loader as gl
 
-        gl.load_procedure_catalog_from_db.cache_clear()
         cat = gl.load_procedure_catalog_from_db() or {}
         proc_n = sum(len(v) for v in cat.values())
         proc_chip = (
@@ -757,9 +756,15 @@ def render_landing() -> None:
             if ai_ready:
                 use_ai = st.toggle(
                     f"AI 심층 분석 사용 ({ai_review.provider_label()} + Hanul DB)",
-                    value=True,
-                    help="시트별 정독 · Hanul DB 근거 인용 · 중점감리 점검",
+                    value=False,
+                    help="시트별 OpenAI 호출(최대 12장). 켜면 수분~십수 분 소요될 수 있습니다. "
+                    "빠른 테스트는 끈 채로 규칙엔진+멀티에이전트만 사용하세요.",
                 )
+                if use_ai:
+                    st.warning(
+                        "AI 심층 분석 ON — 시트마다 API를 호출하므로 **수 분 이상** 걸릴 수 있습니다. "
+                        "화면 아래 진행 단계가 바뀌면 정상입니다."
+                    )
             else:
                 use_ai = False
                 st.info(
@@ -776,11 +781,16 @@ def render_landing() -> None:
             )
 
             if generate and uploads:
-                st.caption(
-                    "⏳ 대용량·다수 파일은 **1~3분** 걸릴 수 있습니다. "
-                    "진행 단계가 갱신되면 정상 처리 중입니다."
+                est = (
+                    "AI ON: 시트당 API 호출로 **수분~십수 분** 가능"
+                    if use_ai
+                    else "규칙+멀티에이전트: 보통 **수십 초~2분**"
                 )
-                with st.spinner("리뷰노트 생성 중…"):
+                st.caption(f"⏳ {est}. 아래 진행 단계가 바뀌면 정상 처리 중입니다.")
+                with st.status("리뷰노트 생성 중…", expanded=True) as status:
+                    def _ui_progress(msg: str) -> None:
+                        status.write(msg)
+
                     run_analysis(
                         uploads,
                         use_ai,
@@ -788,7 +798,12 @@ def render_landing() -> None:
                         include_minor=include_minor,
                         is_listed=is_listed,
                         gaap=gaap,
+                        progress=_ui_progress,
                     )
+                    if st.session_state.get("generated"):
+                        status.update(label="리뷰노트 생성 완료", state="complete")
+                    elif st.session_state.get("error"):
+                        status.update(label="생성 중 오류", state="error")
                 if st.session_state.get("generated"):
                     st.rerun()
 
@@ -1872,6 +1887,18 @@ def _attach_references(notes: list[dict], engagement: dict) -> None:
             continue
         if category not in NEEDS_BASIS and note.get("importance") != "상":
             continue
+        # 자가진단·감리 체크리스트가 이미 사례·근거를 붙인 노트는 KB 재검색 생략
+        existing_cases = note.get("enforcement_cases") or []
+        if (
+            (note.get("enforcement_protected") or note.get("focus_gate"))
+            and existing_cases
+            and str(note.get("basis") or "").strip()
+        ):
+            for p in existing_cases[:2]:
+                if not p.get("summary_line"):
+                    p["summary_line"] = _format_enforcement_summary(note, p)
+            note["enforcement_cases"] = existing_cases[:2]
+            continue
         terms = _ref_terms(note)
         issue_terms = _issue_terms(note)
         note_acct = re_engine.note_account(note)
@@ -1884,7 +1911,6 @@ def _attach_references(notes: list[dict], engagement: dict) -> None:
         note.pop("references", None)
 
         # 감리지적사례 — 체크리스트 부착 사례 우선, 아니면 주제 일치 검색
-        existing_cases = note.get("enforcement_cases") or []
         if note.get("enforcement_protected") and existing_cases:
             cleaned = []
             for p in existing_cases[:2]:
@@ -1991,6 +2017,7 @@ def run_analysis(
     include_minor: bool = False,
     is_listed: bool | None = None,
     gaap: str | None = None,
+    progress=None,
 ) -> None:
     """업로드 파일(1개 이상)을 파싱·병합하고 규칙엔진(+선택적 AI)으로 검토."""
     import time
@@ -1999,7 +2026,11 @@ def run_analysis(
     t0 = time.perf_counter()
 
     def _step(msg: str) -> None:
-        pass  # st.spinner 사용 — 동적 위젯 갱신으로 인한 DOM 충돌 방지
+        if progress:
+            try:
+                progress(msg)
+            except Exception:  # noqa: BLE001
+                pass
 
     step = "① 조서 파일 파싱"
     try:
@@ -2066,12 +2097,15 @@ def run_analysis(
                     materiality=mat,
                     is_listed=engagement.get("is_listed"),
                     engagement=engagement,
+                    mode="after_L1",  # L1 직후 — 지휘자가 중복 전수검사 생략
+                    progress=_step,
                 )
                 ma_notes = list(ma_result.get("findings") or [])
                 ma_meta = {
                     "tier_counts": ma_result.get("tier_counts") or {},
                     "accounts_reviewed": ma_result.get("accounts_reviewed") or [],
                     "audit_trail_n": len(ma_result.get("audit_trail") or []),
+                    "work_plan": ma_result.get("work_plan") or {},
                 }
             except Exception as exc:  # noqa: BLE001
                 st.session_state["ma_error"] = f"멀티에이전트 실행 오류: {exc}"

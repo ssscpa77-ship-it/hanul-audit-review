@@ -34,7 +34,8 @@ _MAX_SHEET_CHARS = 3800
 # 리뷰 대상에서 제외할 최소 본문 길이 (표지·목차 등 스킵)
 _MIN_SHEET_CHARS = 80
 # 한 번의 분석에서 처리할 시트 상한 (과도한 호출 방지)
-_MAX_SHEETS = 40
+# UI에서 진행률을 보여 주더라도 40장은 수분~수십 분 소요 → 기본 상한 축소
+_MAX_SHEETS = 12
 
 _CATEGORIES = [
     "증빙·절차",
@@ -362,6 +363,7 @@ def _review_one_sheet(
     max_notes: int,
     *,
     variant: Any = None,
+    focus_block: str | None = None,
 ) -> list[dict[str, Any]]:
     import rag_strategy as rs
 
@@ -381,15 +383,18 @@ def _review_one_sheet(
     ]
     citation_block, id_map = _format_citations(cites)
 
-    year_s = str(engagement.get("audit_year", "2026"))
-    year = int(year_s) if year_s.isdigit() else 2026
-    import fss_focus
+    if focus_block is None:
+        year_s = str(engagement.get("audit_year", "2026"))
+        year = int(year_s) if year_s.isdigit() else 2026
+        import fss_focus
 
-    focus_titles = [
-        f"①{i.issue_no} {i.title}"
-        for i in fss_focus.load_current_focus_issues(year, bool(engagement.get("is_listed")))
-    ]
-    focus_block = "\n".join(f"- {t}" for t in focus_titles) or "(해당 연도 항목 확인 필요)"
+        focus_titles = [
+            f"①{i.issue_no} {i.title}"
+            for i in fss_focus.load_current_focus_issues(
+                year, bool(engagement.get("is_listed"))
+            )
+        ]
+        focus_block = "\n".join(f"- {t}" for t in focus_titles) or "(해당 연도 항목 확인 필요)"
 
     user_prompt = (
         f"[감사 대상] 회사: {engagement.get('company_name')}, "
@@ -517,6 +522,10 @@ def run_sheet_reviews(
     for fi in focus_issues:
         focus_kw.update(fi.related_accounts)
         focus_kw.update(fi.sheet_keywords)
+    focus_block = (
+        "\n".join(f"- ①{i.issue_no} {i.title}" for i in focus_issues)
+        or "(해당 연도 항목 확인 필요)"
+    )
 
     # 리뷰할 시트 선별 (본문이 충분한 시트만, 4대 중점항목 시트는 예외)
     targets: list[tuple[str, str, str, str]] = []
@@ -555,6 +564,7 @@ def run_sheet_reviews(
                     engagement,
                     max_notes_per_sheet,
                     variant=variant,
+                    focus_block=focus_block,
                 )
             )
         except Exception:  # noqa: BLE001 - 개별 시트 실패는 건너뛰고 계속

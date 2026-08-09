@@ -39,25 +39,56 @@ def _rule_note_to_finding(note: dict[str, Any], agent_id: str, agent_type: str =
 # --------------------------------------------------------------------------
 # FA-1. 합계·계산검증 에이전트 (Tie-out & Calculation Agent)
 # --------------------------------------------------------------------------
-def run_fa1_tie_out(doc: ParsedDocument, mat: re_engine.Materiality | None = None) -> list[dict[str, Any]]:
-    """표 내 합계·부분합, 전기대비 이상치. RAG 미사용 — 100% 재계산 기반."""
+def run_fa1_tie_out(
+    doc: ParsedDocument,
+    mat: re_engine.Materiality | None = None,
+    *,
+    accounts: list[str] | None = None,
+    max_tables: int = 12,
+) -> list[dict[str, Any]]:
+    """표 내 합계·부분합, 전기대비 이상치.
+
+    standalone 모드 전용으로 가볍게 동작한다.
+    - 지정 계정 시트만 (accounts)
+    - 표 상한 max_tables
+    - 행 수 300 초과 표는 스킵 (L1이 이미 큰 표도 일부 검사)
+    """
     findings: list[dict[str, Any]] = []
     m = mat or re_engine.extract_materiality(doc)
+    acct_set = set(accounts or [])
 
+    candidates: list[tuple[int, Any]] = []
     for idx, table in enumerate(doc.tables):
+        if acct_set:
+            ta = re_engine.table_account(table)
+            if ta not in acct_set:
+                continue
+        try:
+            if table.shape[0] < 3 or table.shape[1] < 2:
+                continue
+            if table.shape[0] > 300:
+                continue
+        except Exception:  # noqa: BLE001
+            continue
+        candidates.append((idx, table))
+        if len(candidates) >= max_tables:
+            break
+
+    for idx, table in candidates:
         for note in re_engine._verify_table_totals(table, idx, m):
             f = _rule_note_to_finding(note, "FA-1")
             f["category"] = f.get("category") or "계산오류"
             f["evidence_refs"] = ["표 내 재계산 결과(AmountGrid)"]
-            f["confidence"] = 0.95  # 결정론적 재계산 — 최고 신뢰도
+            f["confidence"] = 0.95
             findings.append(f)
 
-    # Gap#2 — 전기 대비 변동 분석 미확인(항상 수행; run_review는 include_minor=True일 때만 수행)
-    for note in re_engine._check_prior_year_analysis(doc):
-        f = _rule_note_to_finding(note, "FA-1")
-        f["confidence"] = 0.6
-        f["evidence_refs"] = ["전기·당기 비교열 재계산"]
-        findings.append(f)
+    # 전기대비는 표가 적을 때만 (대량 조서에서는 비용 대비 효과 낮음)
+    if len(getattr(doc, "tables", []) or []) <= 20:
+        for note in re_engine._check_prior_year_analysis(doc):
+            f = _rule_note_to_finding(note, "FA-1")
+            f["confidence"] = 0.6
+            f["evidence_refs"] = ["전기·당기 비교열 재계산"]
+            findings.append(f)
 
     return findings
 
@@ -95,8 +126,7 @@ def run_fa2_cross_reference(doc: ParsedDocument, mat: re_engine.Materiality | No
 # FA-3. 표준감사프로그램 절차완전성 에이전트 (Audit Program Completeness Agent)
 # --------------------------------------------------------------------------
 def _table_text_for_account(doc: ParsedDocument, account: str) -> str:
-    parts = [re_engine._sheet_text(t) for t in doc.tables if re_engine.table_account(t) == account]
-    return "\n".join(parts)
+    return re_engine.account_sheet_text(doc, account)
 
 
 def _procedure_pass_fail(stext: str, item: Any) -> tuple[bool, str]:
@@ -161,51 +191,88 @@ def run_fa4_regulatory_focus(
     doc: ParsedDocument,
     engagement: dict[str, Any],
     is_listed: bool | None = None,
+    *,
+    include_checklists: bool = False,
 ) -> list[dict[str, Any]]:
-    """4대중점 Pass/Fail + 감리지적사례 역매칭(Gap#17) 선제 탐지."""
+    """4대중점 자가진단·감리 체크리스트 + 감리지적사례 역매칭.
+
+    `include_checklists=False`(기본, after_L1): L1이 이미 `focus_selfcheck`·감리지적을
+    수행했으므로 **red-flag 역매칭만** 수행한다.
+    `include_checklists=True`(standalone): Claude 자가진단 엔진 + 감리 체크리스트 전수.
+    """
     findings: list[dict[str, Any]] = []
     listed = bool(is_listed) if is_listed is not None else bool(engagement.get("is_listed"))
 
-    for note in fss_focus.run_focus_review(doc, engagement, is_listed=listed):
-        f = _rule_note_to_finding(note, "FA-4")
-        f["category"] = "중점감리"
-        f["confidence"] = 0.85
-        findings.append(f)
+    if include_checklists:
+        # 2026-08-09: 4대중점은 G0~G4 게이트 자가진단(focus_selfcheck)이 기본.
+        try:
+            import focus_selfcheck as _fsc
+        except ImportError:  # pragma: no cover
+            _fsc = None
 
-    for note in enforcement_review.run_enforcement_checklist_review(doc, is_listed=listed):
-        f = _rule_note_to_finding(note, "FA-4")
-        f["category"] = f.get("category") or "감리지적유사"
-        findings.append(f)
+        if _fsc is not None:
+            _res = _fsc.run_selfcheck(doc, engagement, is_listed=listed)
+            for note in _res.notes:
+                f = _rule_note_to_finding(note, "FA-4")
+                f["category"] = "중점감리"
+                _gate = str(note.get("focus_gate") or "")
+                f["confidence"] = 0.95 if _gate in ("G0", "G1") else 0.85
+                f["focus_gate"] = _gate
+                f["focus_step_id"] = note.get("focus_step_id", "")
+                f["focus_verdict"] = note.get("focus_verdict", "")
+                findings.append(f)
+        else:
+            for note in fss_focus.run_focus_review(doc, engagement, is_listed=listed):
+                f = _rule_note_to_finding(note, "FA-4")
+                f["category"] = "중점감리"
+                f["confidence"] = 0.85
+                findings.append(f)
 
-    # Gap#17 — 감리사례 역매칭(선제 지적). 계정·주제 이중 일치 조건(§0.9)을 유지하기 위해
-    # red_flag_phrases가 등록된 계정에 한해, 해당 계정 조서에 red flag 문구가 직접
-    # 발견되는지 스캔한다. 기존 리뷰노트 존재 여부와 무관하게 독립 지적을 생성하되
-    # confidence를 0.5로 낮게 보고하여 오케스트레이터가 Tier3로 처리하도록 한다.
-    for listed_flag in (True, False):
-        items = gl.load_enforcement_checklist_from_db(listed_flag) or []
-        for item in items:
-            if not item.red_flag_phrases or not item.canonical_account:
-                continue
-            if item.canonical_account not in re_engine.document_accounts(doc):
-                continue
-            stext = _table_text_for_account(doc, item.canonical_account)
-            hit = next((p for p in item.red_flag_phrases if p in stext), None)
-            if not hit:
-                continue
-            findings.append(
-                make_finding(
-                    agent_id="FA-4",
-                    agent_type="functional",
-                    category="감리지적유사",
-                    defect=f"{item.canonical_account} — 「{hit}」 표현이 감리지적사례 red-flag 패턴과 유사",
-                    reason=item.case_context or item.audit_focus or "감리지적사례 역매칭(선제 탐지)",
-                    basis=item.case_source or "감리지적사례",
-                    to_be=item.to_be or "해당 사항에 대한 검토 근거 보완",
-                    account=item.canonical_account,
-                    evidence_refs=[item.case_source] if item.case_source else [],
-                    confidence=0.5,  # 신규 독립 지적 — 오케스트레이터가 Tier3 처리
-                )
+        for note in enforcement_review.run_enforcement_checklist_review(doc, is_listed=listed):
+            f = _rule_note_to_finding(note, "FA-4")
+            f["category"] = f.get("category") or "감리지적유사"
+            findings.append(f)
+
+    # Gap#17 — 감리사례 역매칭(선제) — listed 1회·계정 캐시·최대 8건
+    _MAX_REDFLAG = 8
+    present = set(re_engine.document_accounts(doc) or [])
+    if not present:
+        return findings
+    items = gl.load_enforcement_checklist_from_db(listed) or []
+    text_cache: dict[str, str] = {}
+    redflag_n = 0
+    for item in items:
+        if redflag_n >= _MAX_REDFLAG:
+            break
+        if not item.red_flag_phrases or not item.canonical_account:
+            continue
+        if item.canonical_account not in present:
+            continue
+        if item.canonical_account not in text_cache:
+            text_cache[item.canonical_account] = _table_text_for_account(
+                doc, item.canonical_account
             )
+        stext = text_cache[item.canonical_account]
+        if not stext:
+            continue
+        hit = next((p for p in item.red_flag_phrases if p in stext), None)
+        if not hit:
+            continue
+        findings.append(
+            make_finding(
+                agent_id="FA-4",
+                agent_type="functional",
+                category="감리지적유사",
+                defect=f"{item.canonical_account} — 「{hit}」 표현이 감리지적사례 red-flag 패턴과 유사",
+                reason=(item.case_context or item.audit_focus or "감리지적사례 역매칭")[:180],
+                basis=item.case_source or "감리지적사례",
+                to_be=item.to_be or "해당 사항에 대한 검토 근거 보완",
+                account=item.canonical_account,
+                evidence_refs=[item.case_source] if item.case_source else [],
+                confidence=0.5,
+            )
+        )
+        redflag_n += 1
     return findings
 
 
@@ -223,5 +290,6 @@ def run_all(
     out += run_fa1_tie_out(doc, m)
     out += run_fa2_cross_reference(doc, m)
     out += run_fa3_procedure_completeness(doc, m, listed)
-    out += run_fa4_regulatory_focus(doc, eng, listed)
+    # 독립 실행 시에는 체크리스트 포함
+    out += run_fa4_regulatory_focus(doc, eng, listed, include_checklists=True)
     return out

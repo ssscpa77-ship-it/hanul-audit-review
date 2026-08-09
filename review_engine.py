@@ -404,12 +404,19 @@ def run_review(
     _prog("표준절차·계정별 점검…")
     notes += _check_procedures(doc, mat, listed)
     eng = engagement or extract_engagement(doc)
-    _prog("4대 중점·감리지적 체크리스트…")
-    notes += fss_focus.run_focus_review(
-        doc,
-        {"audit_year": eng.get("audit_year") or _extract_audit_year(doc.text, doc.file_name)},
-        is_listed=listed,
-    )
+    _prog("4대 중점 자가진단·감리지적 체크리스트…")
+    # Claude 2026-08-09: G0~G4 게이트 자가진단(focus_selfcheck)이 L1 기본.
+    # 구엔진(fss_focus)은 모듈 부재·예외 시에만 폴백.
+    _focus_eng = {
+        "audit_year": eng.get("audit_year") or _extract_audit_year(doc.text, doc.file_name),
+        "is_listed": listed,
+    }
+    try:
+        import focus_selfcheck as _fsc
+
+        notes += _fsc.run_focus_selfcheck_notes(doc, _focus_eng, is_listed=listed)
+    except Exception:  # noqa: BLE001
+        notes += fss_focus.run_focus_review(doc, _focus_eng, is_listed=listed)
     notes += enforcement_review.run_enforcement_checklist_review(doc, is_listed=listed)
     _prog("합계·주석 대사 점검…")
     notes += _check_calculations(doc, mat)
@@ -841,8 +848,22 @@ def soft_borrowing_collateral_memo(note: dict[str, Any]) -> dict[str, Any]:
     return memo
 
 
+def _doc_runtime_cache(doc: ParsedDocument) -> dict[str, Any]:
+    """분석 1회 동안 재사용하는 문서 단위 캐시."""
+    cache = getattr(doc, "_hanul_runtime_cache", None)
+    if cache is None:
+        cache = {}
+        setattr(doc, "_hanul_runtime_cache", cache)
+    return cache
+
+
 def document_accounts(doc: ParsedDocument) -> list[str]:
     """조서에서 실제로 다뤄진 계정과목을 시트 단위로 수집(주계정 기준)."""
+    cache = _doc_runtime_cache(doc)
+    cached = cache.get("document_accounts")
+    if cached is not None:
+        return list(cached)
+
     names: list[str] = []
 
     def add(value: str) -> None:
@@ -861,11 +882,26 @@ def document_accounts(doc: ParsedDocument) -> list[str]:
             acct = _primary_account("", _sheet_text(t))
             if acct:
                 add(acct)
-    if names:
-        return names
-    # 표가 없는 문서(텍스트 PDF 등)는 본문 최초 등장 계정으로 보조 판정
-    acct = _primary_account("", doc.text)
-    return [acct] if acct else []
+    if not names:
+        # 표가 없는 문서(텍스트 PDF 등)는 본문 최초 등장 계정으로 보조 판정
+        acct = _primary_account("", doc.text)
+        names = [acct] if acct else []
+    cache["document_accounts"] = list(names)
+    return list(names)
+
+
+def account_sheet_text(doc: ParsedDocument, account: str) -> str:
+    """계정별 조서 텍스트(문서 단위 캐시). FA-3/FA-4/AA 공용."""
+    if not account:
+        return ""
+    cache = _doc_runtime_cache(doc)
+    texts: dict[str, str] = cache.setdefault("account_sheet_text", {})
+    if account in texts:
+        return texts[account]
+    parts = [_sheet_text(t) for t in doc.tables if table_account(t) == account]
+    joined = "\n".join(parts)
+    texts[account] = joined
+    return joined
 
 
 # --- 규칙 ① 형식·완전성 ---
@@ -1588,9 +1624,36 @@ def _check_procedures(
 
 # --- 규칙 ③ 계산검증 ---
 def _check_calculations(doc: ParsedDocument, mat: Materiality | None = None) -> list[dict[str, Any]]:
+    """표 합계 검증 — 대량 조서에서는 의미 있는 금액표만 상한 내 검사.
+
+    36시트 전수 재계산이 수분 소요되는 병목을 막기 위해:
+    - 행<3·열<2·행>300 표 스킵
+    - 우선순위(계정 Lead/금액 키워드) 후 최대 24표
+    """
     notes: list[dict[str, Any]] = []
     m = mat or Materiality()
+    _MAX_TABLES = 24
+    scored: list[tuple[int, int, Any]] = []
     for t_idx, table in enumerate(doc.tables, start=1):
+        try:
+            rows, cols = int(table.shape[0]), int(table.shape[1])
+        except Exception:  # noqa: BLE001
+            continue
+        if rows < 3 or cols < 2 or rows > 300:
+            continue
+        src = str(table.attrs.get("source", ""))
+        title = str(table.attrs.get("title", ""))
+        hay = f"{src} {title}".lower()
+        score = 0
+        if "lead" in hay or "리드" in hay:
+            score += 3
+        if any(k in hay for k in ("합계", "시산", "잔액", "명세", "평가", "손상")):
+            score += 2
+        if table_account(table):
+            score += 1
+        scored.append((score, t_idx, table))
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    for _, t_idx, table in scored[:_MAX_TABLES]:
         notes += _verify_table_totals(table, t_idx, m)
     return notes
 

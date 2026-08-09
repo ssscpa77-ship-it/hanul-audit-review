@@ -714,6 +714,10 @@ def _note_should_suppress(doc: ParsedDocument, note: dict[str, Any]) -> bool:
 
 def _focus_note_documented(doc: ParsedDocument, note: dict[str, Any]) -> bool:
     """4대 중점 노트 — 해당 checklist_id 항목이 조서에서 충족되면 제외."""
+    # focus_selfcheck(G0~G4)가 이미 게이트 판정한 노트는 재평가하지 않는다.
+    # (구엔진 keyword satisfied로 잘못된 제거·xlsx 재로드를 막음)
+    if note.get("focus_gate") or note.get("focus_verdict"):
+        return False
     try:
         import fss_focus
         import guidelines_loader as gl
@@ -735,7 +739,6 @@ def _focus_note_documented(doc: ParsedDocument, note: dict[str, Any]) -> bool:
     else:
         listed = bool(listed)
 
-    gl.load_focus_issues_from_db.cache_clear()
     enhanced = gl.load_focus_issues_from_db(listed)
     items_by_issue: dict[int, list] = {}
     issues_meta: dict[int, Any] = {}

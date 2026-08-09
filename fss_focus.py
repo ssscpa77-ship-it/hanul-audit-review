@@ -517,7 +517,7 @@ def run_focus_review(
     try:
         import guidelines_loader as gl
 
-        gl.load_focus_issues_from_db.cache_clear()
+        # hot path에서 cache_clear 금지 — 동일 분석 중 반복 xlsx 로드 방지
         enhanced = gl.load_focus_issues_from_db(listed)
         if enhanced:
             issues = [

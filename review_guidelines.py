@@ -12,6 +12,9 @@ GUIDELINES_DB_SUBDIR = "자가검토_지침_템플릿"
 TEMPLATE_FILES = {
     "focus_listed": "4대중점_체크리스트_상장_FY2026.xlsx",
     "focus_unlisted": "4대중점_체크리스트_비상장_FY2026.xlsx",
+    # Claude 2026-08-09 — 220단계 원자절차 자가진단 리뷰노트(사람용·동기화 대상)
+    "focus_selfcheck_listed": "4대중점_자가진단_리뷰노트_상장_FY2026.xlsx",
+    "focus_selfcheck_unlisted": "4대중점_자가진단_리뷰노트_비상장_FY2026.xlsx",
     "procedures": "계정별_필수절차_카탈로그_FY2026.xlsx",
     "sheet_tieout": "조서연결_대사_사전_FY2026.xlsx",
     "review_phrases": "검토내역_결론_인정문장_FY2026.xlsx",
@@ -105,6 +108,18 @@ def template_upload_requests() -> list[dict[str, str]]:
             "folder": GUIDELINES_DB_SUBDIR,
             "purpose": "비상장 4대 중점 이슈별 체크리스트",
             "status": "필수 — 빈 양식 제공됨, 내부 작성 후 업로드",
+        },
+        {
+            "file": TEMPLATE_FILES["focus_selfcheck_listed"],
+            "folder": GUIDELINES_DB_SUBDIR,
+            "purpose": "상장 4대 중점 자가진단 리뷰노트(220단계·G0~G4, 엔진=focus_selfcheck)",
+            "status": "필수 — Claude 2026-08-09 신설, 엔진은 focus_procedure_steps.py 사용",
+        },
+        {
+            "file": TEMPLATE_FILES["focus_selfcheck_unlisted"],
+            "folder": GUIDELINES_DB_SUBDIR,
+            "purpose": "비상장 4대 중점 자가진단 리뷰노트",
+            "status": "필수 — Claude 2026-08-09 신설",
         },
         {
             "file": TEMPLATE_FILES["procedures"],

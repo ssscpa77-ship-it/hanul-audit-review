@@ -231,8 +231,8 @@ def multi_agent_review_enabled() -> bool:
 
 
 # ── 앱 버전 (UI·엑셀 표지 등) ─────────────────────────────────────
-APP_VERSION = "0.9.1"
-APP_RELEASE_LABEL = "멀티에이전트·필수절차 카탈로그 반영"
+APP_VERSION = "0.9.3"
+APP_RELEASE_LABEL = "리뷰 파이프라인 최적화·중복제거·속도개선"
 APP_BUILD_DATE = "2026-08-09"
 
 
